@@ -6,7 +6,10 @@ export const INK_3 = "#62666d"
 export const INK_4 = "#9a9ea4"
 export const LINE = "#d9d8d2"
 export const PAPER = "#f4f4f0"
-export const HEALTHY = "#1a7a6b"
+/** Years in good health: slate blue, apart from the brick–teal gap scale. */
+export const HEALTHY = "#3b6a8c"
+/** The place the reader follows, in every scene. */
+export const FOLLOW = "#2256d1"
 export const POOR = "#d8d2c4"
 export const NO_DATA = "#cfcdc6"
 

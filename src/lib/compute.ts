@@ -25,8 +25,13 @@ type Evidence = {
   flags?: Record<"ltla" | "utla", Record<string, string[]>>
 }
 type Hex = { hexes: Record<string, [number, number]> }
+type Intl = {
+  meta: { source: string; fetched: string }
+  years: number[]
+  countries: { code: string; name: string; male: (number | null)[]; female: (number | null)[] }[]
+}
 
-export type Raw = { le: Packed; hle: Packed; avoidable: Packed; evidence: Evidence; hex: Hex }
+export type Raw = { le: Packed; hle: Packed; avoidable: Packed; evidence: Evidence; hex: Hex; intl: Intl }
 export type Sex = "male" | "female"
 const SEXES = { male: "Male", female: "Female" } as const
 
@@ -35,8 +40,8 @@ const ENGLAND = "E92000001"
 const P_START = "2001 to 2003"
 const P_STALL = "2011 to 2013"
 const P_PRECOVID = "2017 to 2019"
-/** Circumstances shown against life expectancy, in the order the film cycles them. */
-const FACTORS = ["childPoverty", "smoking", "obesity", "inactive", "unemployment", "airPollution"]
+/** Circumstances shown against life expectancy. Child poverty leads; the rest follow by strength of link, air pollution last. */
+const FACTORS = ["childPoverty", "imd", "inactive", "obesity", "alcohol", "fuelPoverty", "smoking", "unemployment", "airPollution"]
 
 export type Area = {
   code: string
@@ -100,7 +105,48 @@ function tenths(evidence: Evidence, grain: "ltla" | "utla", keep: (code: string)
   return out
 }
 
-export function computeFilm({ le, hle, avoidable, evidence, hex }: Raw) {
+/**
+ * The UK among OECD members: annual pace of gains before and after 2011, in years per year.
+ * The later stretch stops at 2019, the last year before COVID-19. A missing end year uses the
+ * nearest reported year inside the stretch.
+ */
+function peers(intl: Intl) {
+  const at = (y: number) => intl.years.indexOf(y)
+  const pace = (v: (number | null)[], from: number, to: number) => {
+    let i = at(from)
+    let j = at(to)
+    while (i < j && v[i] === null) i += 1
+    while (j > i && v[j] === null) j -= 1
+    return ((v[j] as number) - (v[i] as number)) / (intl.years[j] - intl.years[i])
+  }
+  // Unweighted mean of the members reporting each year.
+  const average = (sex: Sex) => intl.years.map((_, i) => round(mean(intl.countries.map((c) => c[sex][i])), 2) as number)
+  const bySex = (sex: Sex) => {
+    const rows = intl.countries.map((c) => ({ code: c.code, pre: pace(c[sex], 2001, 2011), post: pace(c[sex], 2011, 2019) }))
+    const uk = rows.find((r) => r.code === "GBR")!
+    const rank = (value: (r: (typeof rows)[number]) => number) => [...rows].sort((a, b) => value(b) - value(a)).indexOf(uk) + 1
+    // Rank among members reporting each year, 1 = longest life expectancy.
+    const ranks = intl.countries.map(() => intl.years.map(() => null as number | null))
+    const reporting = intl.years.map((_, i) => {
+      const order = intl.countries.map((c, k) => ({ k, v: c[sex][i] })).filter((d): d is { k: number; v: number } => d.v !== null)
+      order.sort((a, b) => b.v - a.v).forEach((d, r) => (ranks[d.k][i] = r + 1))
+      return order.length
+    })
+    return {
+      rows,
+      ranks,
+      reporting,
+      rankPre: rank((r) => r.pre),
+      rankPost: rank((r) => r.post),
+      rankDrop: rank((r) => r.pre - r.post),
+      slower: rows.filter((r) => r.post < uk.post).map((r) => r.code),
+      average: average(sex),
+    }
+  }
+  return { years: intl.years, countries: intl.countries, male: bySex("male"), female: bySex("female"), source: intl.meta.source, fetched: intl.meta.fetched }
+}
+
+export function computeFilm({ le, hle, avoidable, evidence, hex, intl }: Raw) {
   const P = le.periods
   const index = { start: P.indexOf(P_START), stall: P.indexOf(P_STALL), precovid: P.indexOf(P_PRECOVID), now: P.length - 1 }
   const series = (file: Packed, code: string, sex: Sex, dim = "birth") =>
@@ -133,6 +179,8 @@ export function computeFilm({ le, hle, avoidable, evidence, hex }: Raw) {
       post: round(post, 3) as number,
       trendNow: round(trendNow, 2) as number,
       shortfall: round(trendNow - v[index.now], 2) as number,
+      /** Shortfall already open by 2017–19, before COVID-19. */
+      shortfallPre: round(v[index.stall] + pre * (index.precovid - index.stall) - v[index.precovid], 2) as number,
       start: v[index.start],
       stall: v[index.stall],
       precovid: v[index.precovid],
@@ -148,13 +196,17 @@ export function computeFilm({ le, hle, avoidable, evidence, hex }: Raw) {
     const pick = (a: Area) => ({ code: a.code, name: a.name, value: a[sex][index.now] as number })
     const values = list.map((a) => a[sex][index.now] as number).sort((a, b) => a - b)
     const q = (p: number) => values[Math.round(p * (values.length - 1))]
+    // Ten highest and lowest, widened to include any place tied with the tenth.
+    const v = (a: Area) => a[sex][index.now] as number
+    const topSet = list.filter((a) => v(a) >= v(list[9]))
+    const bottomSet = list.filter((a) => v(a) <= v(list[list.length - 10]))
     return {
       top: pick(list[0]),
       bottom: pick(list[list.length - 1]),
-      topTen: list.slice(0, 10).map((a) => a.code),
-      bottomTen: list.slice(-10).map((a) => a.code),
-      topTenEngland: list.slice(0, 10).filter((a) => a.nation === "E").length,
-      bottomTenScotland: list.slice(-10).filter((a) => a.nation === "S").length,
+      topTen: topSet.map((a) => a.code),
+      bottomTen: bottomSet.map((a) => a.code),
+      topTenEngland: topSet.filter((a) => a.nation === "E").length,
+      bottomTenScotland: bottomSet.filter((a) => a.nation === "S").length,
       iqr: round(q(0.75) - q(0.25), 1) as number,
       median: q(0.5),
     }
@@ -192,7 +244,7 @@ export function computeFilm({ le, hle, avoidable, evidence, hex }: Raw) {
   })
 
   const ind = new Map(evidence.indicators.map((i) => [i.key, i]))
-  const factors: Factor[] = FACTORS.map((key) => {
+  const factors: Factor[] = FACTORS.map((key): Factor => {
     const i = ind.get(key)!
     const fitFor = (sex: Sex) =>
       linearFit(
@@ -241,6 +293,11 @@ export function computeFilm({ le, hle, avoidable, evidence, hex }: Raw) {
     const lowE = low.nation === "E" ? low : english[english.length - 1]
     const highE = high.nation === "E" ? high : english[0]
     const hleAt = (code: string) => hle.values[code]?.[SEXES[sex]]?.birth?.[hleI]?.[0] ?? null
+    /** 95% confidence interval, years. */
+    const hleCi = (code: string) => {
+      const p = hle.values[code]?.[SEXES[sex]]?.birth?.[hleI]
+      return p && p[1] !== null && p[2] !== null ? [p[1], p[2]] : null
+    }
     const av = (code: string) => series(avoidable, code, sex, "avoidable")
     const brief = (a: Area) => ({ code: a.code, name: a.name })
     return {
@@ -248,7 +305,7 @@ export function computeFilm({ le, hle, avoidable, evidence, hex }: Raw) {
       high: { ...brief(high), value: e.top.value },
       standIn: { low: lowE === low ? null : brief(lowE), high: highE === high ? null : brief(highE) },
       le: { low: series(le, low.code, sex), high: series(le, high.code, sex) },
-      hle: { low: hleAt(low.code), high: hleAt(high.code), england: hleAt(ENGLAND) },
+      hle: { low: hleAt(low.code), high: hleAt(high.code), england: hleAt(ENGLAND), lowCi: hleCi(low.code), highCi: hleCi(high.code) },
       avoidable: { low: av(lowE.code), high: av(highE.code), england: av(ENGLAND) },
       /** Circumstances for everyone rather than by sex. */
       factors: ["childPoverty", "inactive", "alcohol"].map((key) => ({
@@ -289,12 +346,20 @@ export function computeFilm({ le, hle, avoidable, evidence, hex }: Raw) {
     healthy: { period: compact(hle.periods[hleI]), rows: healthy },
     factors,
     imdR: { male: imdFit("male"), female: imdFit("female") },
+    /** The 30 areas with the highest share of deaths linked to air pollution. The City of London has no life expectancy figure. */
     air: {
       london: air.filter(([code]) => code.startsWith("E09")).length,
-      maleMean: round(mean(air.map(([code]) => le.values[code]?.Male?.birth?.[index.now]?.[0])), 1) as number,
-      englandMale: le.values[ENGLAND]?.Male?.birth?.[index.now]?.[0] as number,
+      withLe: air.filter(([code]) => le.values[code]?.Male?.birth?.[index.now]?.[0] != null).length,
+      male: round(mean(air.map(([code]) => le.values[code]?.Male?.birth?.[index.now]?.[0])), 1) as number,
+      female: round(mean(air.map(([code]) => le.values[code]?.Female?.birth?.[index.now]?.[0])), 1) as number,
+      england: {
+        male: le.values[ENGLAND]?.Male?.birth?.[index.now]?.[0] as number,
+        female: le.values[ENGLAND]?.Female?.birth?.[index.now]?.[0] as number,
+      },
     },
+    nations: Object.fromEntries(["E", "W", "S", "N"].map((n) => [n, areas.filter((a) => a.nation === n).length])) as Record<Area["nation"], number>,
     pairs: { male: pairFor("male"), female: pairFor("female") },
+    intl: peers(intl),
     hlePeriod: compact(hle.periods[hleI]),
     avPeriods: avoidable.periods.map(compact),
     fetched: evidence.meta.fetched,

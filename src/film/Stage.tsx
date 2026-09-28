@@ -4,7 +4,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react"
 import { Engine } from "@/film/engine"
 import type { Box } from "@/film/geo"
 import { fonts } from "@/film/measure"
-import type { Ctx, SceneDef } from "@/film/scenes"
+import { timeOf, type Ctx, type SceneDef } from "@/film/scenes"
 import type { FilmData, Sex } from "@/lib/compute"
 import { PAPER } from "@/lib/palette"
 
@@ -28,11 +28,12 @@ type Props = {
   W: number
   H: number
   box: Box
+  /** Region the stage may draw in, clear of the caption. */
+  clip: Box
   narrow: boolean
   onHover: (h: Hover | null) => void
-  /** Called every frame time moves, with the period index and whether it is still playing. */
+  /** Called whenever time moves, with the current index and whether it is still playing. */
   onTime: (t: number, playing: boolean) => void
-  onTimeDone: () => void
 }
 
 const easeTime = (k: number) => -(Math.cos(Math.PI * k) - 1) / 2
@@ -43,9 +44,10 @@ export const Stage = forwardRef<StageHandle, Props>(function Stage(props, ref) {
   const time = useRef({ t: 0, from: 0, to: 0, start: 0, ms: 1, delay: 0, playing: false, dirty: false })
   const live = useRef(props)
   const redraw = useRef(true)
-  const last = useRef<{ id?: string; sex?: Sex; follow?: string | null; factor?: number; layout?: string; fonts?: number }>({})
-  const fontGen = useRef(0)
+  const last = useRef<{ id?: string; layout?: string }>({})
   const hovered = useRef<number | null>(null)
+  /** Starts the frame loop if it has gone idle. */
+  const kick = useRef<() => void>(() => {})
 
   useEffect(() => {
     live.current = props
@@ -58,14 +60,15 @@ export const Stage = forwardRef<StageHandle, Props>(function Stage(props, ref) {
 
   useImperativeHandle(ref, () => ({
     replay() {
-      const s = live.current.scene.time
-      if (!s) return
-      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      Object.assign(time.current, { from: s.from === s.to ? 0 : s.from, to: s.to, t: s.from === s.to ? 0 : s.from, start: performance.now(), ms: Math.max(s.ms, 2500), delay: 250, playing: !reduce, dirty: true })
-      if (reduce) time.current.t = s.to
+      const s = timeOf(live.current.scene, live.current.data)
+      if (!s || s.from === s.to) return
+      const reduce = engine.current?.speed === 0
+      Object.assign(time.current, { from: s.from, to: s.to, t: reduce ? s.to : s.from, start: performance.now(), ms: s.ms, delay: 250, playing: !reduce, dirty: true })
+      kick.current()
     },
     scrub(t: number) {
       Object.assign(time.current, { t, playing: false, dirty: true })
+      kick.current()
     },
   }))
 
@@ -84,10 +87,14 @@ export const Stage = forwardRef<StageHandle, Props>(function Stage(props, ref) {
       if (display) fonts.display = `${display}, Georgia, serif`
     }
     readFonts()
+    let alive = true
+    // Label widths depend on the webfonts, so retarget once they arrive without restarting anything.
     document.fonts?.ready.then(() => {
+      if (!alive) return
       readFonts()
-      fontGen.current += 1
+      eng.update(live.current.scene.build(ctx(time.current.t)), performance.now())
       redraw.current = true
+      kick.current()
     })
 
     // Diagonal hatch for years not in good health.
@@ -107,7 +114,7 @@ export const Stage = forwardRef<StageHandle, Props>(function Stage(props, ref) {
 
     let raf = 0
     const loop = (now: number) => {
-      raf = requestAnimationFrame(loop)
+      raf = 0
       const canvas = canvasRef.current
       const c2d = canvas?.getContext("2d")
       if (!canvas || !c2d) return
@@ -126,7 +133,6 @@ export const Stage = forwardRef<StageHandle, Props>(function Stage(props, ref) {
         if (k >= 1) {
           tm.playing = false
           moved = true
-          p.onTimeDone()
         }
       }
       if (moved && p.scene.time) {
@@ -135,7 +141,7 @@ export const Stage = forwardRef<StageHandle, Props>(function Stage(props, ref) {
       }
       tm.dirty = false
       const busy = eng.step(now)
-      if (busy || moved || redraw.current) {
+      if (busy || moved || redraw.current || eng.pulsing) {
         const dpr = Math.min(2, window.devicePixelRatio || 1)
         const w = Math.round(p.W * dpr)
         const h = Math.round(p.H * dpr)
@@ -143,15 +149,22 @@ export const Stage = forwardRef<StageHandle, Props>(function Stage(props, ref) {
           canvas.width = w
           canvas.height = h
         }
-        eng.draw(c2d, p.W, p.H, dpr)
+        eng.draw(c2d, p.W, p.H, dpr, p.clip)
         redraw.current = false
       }
+      // Sleep when nothing moves; kick() wakes the loop.
+      if (busy || tm.playing || eng.pulsing) raf = requestAnimationFrame(loop)
     }
-    raf = requestAnimationFrame(loop)
+    kick.current = () => {
+      if (!raf && alive) raf = requestAnimationFrame(loop)
+    }
+    kick.current()
     const onMotion = () => (eng.speed = reduce.matches ? 0 : 1)
     reduce.addEventListener("change", onMotion)
     return () => {
+      alive = false
       cancelAnimationFrame(raf)
+      raf = 0
       reduce.removeEventListener("change", onMotion)
     }
     // Mount once; live props are read through refs.
@@ -169,32 +182,23 @@ export const Stage = forwardRef<StageHandle, Props>(function Stage(props, ref) {
     const now = performance.now()
     const tm = time.current
     const sceneChanged = prev.id !== sceneId
-    const layoutChanged = prev.layout !== layoutKey || prev.fonts !== fontGen.current
-    if (sceneChanged && p.scene.time) {
-      const s = p.scene.time
-      const play = p.dir > 0 && s.ms > 0 && eng.speed > 0
-      Object.assign(tm, { from: s.from, to: s.to, t: play ? s.from : s.to, start: now, ms: s.ms || 1, delay: s.delay ?? 0, playing: play })
-      p.onTime(tm.t, play)
+    if (sceneChanged) {
+      const s = timeOf(p.scene, p.data)
+      if (s) {
+        const play = p.dir > 0 && s.ms > 0 && eng.speed > 0
+        Object.assign(tm, { from: s.from, to: s.to, t: play ? s.from : s.to, start: now, ms: s.ms || 1, delay: s.delay ?? 0, playing: play })
+        p.onTime(tm.t, play)
+      } else tm.playing = false
+      hovered.current = null
+      eng.hover = null
     }
-    // A first paint or a resize jumps; everything else animates.
-    const instant = prev.id === undefined || (layoutChanged && !sceneChanged)
+    // A resize within a scene jumps; everything else, including the first paint, animates.
+    const instant = prev.id !== undefined && prev.layout !== layoutKey && !sceneChanged
     eng.set(p.scene.build(ctx(tm.t)), now, instant)
     redraw.current = true
-    last.current = { id: sceneId, sex, follow, factor, layout: layoutKey, fonts: fontGen.current }
+    kick.current()
+    last.current = { id: sceneId, layout: layoutKey }
   }, [sceneId, sex, follow, factor, layoutKey])
-
-  // Rebuild once webfonts arrive, since label widths depend on them.
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      if (last.current.fonts !== fontGen.current && engine.current) {
-        engine.current.set(live.current.scene.build(ctx(time.current.t)), performance.now(), true)
-        last.current.fonts = fontGen.current
-        redraw.current = true
-        window.clearInterval(id)
-      }
-    }, 100)
-    return () => window.clearInterval(id)
-  }, [])
 
   const hit = (e: React.PointerEvent) => {
     const eng = engine.current
@@ -203,6 +207,9 @@ export const Stage = forwardRef<StageHandle, Props>(function Stage(props, ref) {
     const h = eng.hit(e.clientX - rect.left, e.clientY - rect.top)
     if ((h?.index ?? null) !== hovered.current) {
       hovered.current = h?.index ?? null
+      eng.hover = hovered.current
+      redraw.current = true
+      kick.current()
       props.onHover(h)
     }
   }
@@ -211,13 +218,18 @@ export const Stage = forwardRef<StageHandle, Props>(function Stage(props, ref) {
     <canvas
       ref={canvasRef}
       role="img"
-      aria-label={props.scene.aria({ data: props.data, sex: props.sex, W: props.W, H: props.H, box: props.box, narrow: props.narrow, t: 0, follow: props.follow, factor: props.factor })}
-      className="absolute inset-0 h-full w-full touch-pan-y"
-      style={{ width: props.W, height: props.H }}
-      onPointerMove={hit}
+      aria-label={props.scene.aria({ data: props.data, sex, W, H, box, narrow: props.narrow, t: 0, follow, factor })}
+      className="absolute inset-0 h-full w-full"
+      style={{ width: W, height: H }}
+      onPointerMove={(e) => e.pointerType === "mouse" && hit(e)}
+      // Touch and pen inspect on tap; a tap away from any dot clears it.
       onPointerDown={hit}
-      onPointerLeave={() => {
+      onPointerLeave={(e) => {
+        if (e.pointerType !== "mouse") return
         hovered.current = null
+        if (engine.current) engine.current.hover = null
+        redraw.current = true
+        kick.current()
         props.onHover(null)
       }}
     />

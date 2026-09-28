@@ -40,7 +40,18 @@ export function SexToggle({ value, onChange, compact }: { value: Sex; onChange: 
     { v: "female", label: "Women" },
   ]
   return (
-    <div role="radiogroup" aria-label="Show figures for" className="relative flex rounded-full border border-ink/10 bg-white/70 p-[3px] backdrop-blur">
+    <div
+      role="radiogroup"
+      aria-label="Show figures for"
+      className="relative flex rounded-full border border-ink/10 bg-white/70 p-[3px] backdrop-blur"
+      onKeyDown={(e) => {
+        if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return
+        e.preventDefault()
+        const next: Sex = value === "male" ? "female" : "male"
+        onChange(next)
+        e.currentTarget.querySelector<HTMLButtonElement>(`[data-sex=${next}]`)?.focus()
+      }}
+    >
       <span
         aria-hidden
         className="absolute inset-y-[3px] w-[calc(50%-3px)] rounded-full bg-ink transition-transform duration-500 ease-[cubic-bezier(0.65,0,0.25,1)]"
@@ -51,7 +62,9 @@ export function SexToggle({ value, onChange, compact }: { value: Sex; onChange: 
           key={o.v}
           type="button"
           role="radio"
+          data-sex={o.v}
           aria-checked={value === o.v}
+          tabIndex={value === o.v ? 0 : -1}
           onClick={() => onChange(o.v)}
           className={cn(
             "relative z-10 rounded-full font-medium transition-colors duration-300",
@@ -146,6 +159,7 @@ export function PlaceSearch({
           role="combobox"
           aria-expanded={open && matches.length > 0}
           aria-controls={`${id}-list`}
+          aria-activedescendant={open && matches[active] ? `${id}-opt-${active}` : undefined}
           onChange={(e) => {
             setQ(e.target.value)
             setOpen(true)
@@ -174,7 +188,7 @@ export function PlaceSearch({
           className="absolute right-0 top-[calc(100%+6px)] z-50 w-64 overflow-hidden rounded-2xl border border-ink/10 bg-white py-1.5 shadow-[0_24px_48px_-24px_rgba(17,19,21,0.45)] [animation:menu_180ms_ease-out]"
         >
           {matches.map((p, i) => (
-            <li key={p.code} role="option" aria-selected={i === active}>
+            <li key={p.code} id={`${id}-opt-${i}`} role="option" aria-selected={i === active}>
               <button
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
@@ -197,8 +211,8 @@ export type TimeBarHandle = { set: (t: number, playing: boolean) => void }
 /** Period scrubber for time scenes, laid under the chart's time axis. */
 export const TimeBar = forwardRef<
   TimeBarHandle,
-  { periods: string[]; left: number; width: number; top: number; onScrub: (t: number) => void; onReplay: () => void }
->(function TimeBar({ periods, left, width, top, onScrub, onReplay }, ref) {
+  { periods: string[]; left: number; width: number; top: number; canReplay: boolean; onScrub: (t: number) => void; onReplay: () => void }
+>(function TimeBar({ periods, left, width, top, canReplay, onScrub, onReplay }, ref) {
   const fill = useRef<HTMLDivElement | null>(null)
   const thumb = useRef<HTMLDivElement | null>(null)
   const label = useRef<HTMLSpanElement | null>(null)
@@ -237,8 +251,9 @@ export const TimeBar = forwardRef<
       <button
         type="button"
         onClick={onReplay}
+        disabled={!canReplay}
         aria-label={playing ? "Playing" : "Replay through time"}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-ink/15 bg-white/80 text-ink transition hover:border-ink/40"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-ink/15 bg-white/80 text-ink transition hover:border-ink/40 disabled:invisible"
       >
         {playing ? (
           <span className="flex gap-[3px]" aria-hidden>

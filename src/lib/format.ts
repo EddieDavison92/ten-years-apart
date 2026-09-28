@@ -14,3 +14,13 @@ export const months = (perYear: number) => Math.round(perYear * 12 * 10) / 10
 const WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
 export const words = (n: number) => WORDS[n] ?? String(n)
 export const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+
+const ORD = ["", "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth"]
+/** "first" to "tenth" in words, then 11th, 22nd, 23rd. */
+export const ordinal = (n: number) => {
+  if (ORD[n]) return ORD[n]
+  return `${n}${suffix(n)}`
+}
+/** 1st, 2nd, 3rd, 11th: always in figures. */
+export const nth = (n: number) => `${n}${suffix(n)}`
+const suffix = (n: number) => (n % 100 >= 11 && n % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[n % 10] ?? "th")

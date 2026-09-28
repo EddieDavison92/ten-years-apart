@@ -3,13 +3,14 @@ import type { LineSpec, MarkSpec, PathSpec, Spec, TextSpec } from "@/film/engine
 import { at, cached, dodge, hexLayout, type Box, type Pt } from "@/film/geo"
 import { textWidth } from "@/film/measure"
 import type { Area, FilmData, Sex } from "@/lib/compute"
-import { months, signed, years } from "@/lib/format"
+import { months, nth, signed, years } from "@/lib/format"
 import {
   BRICK,
   clamp01,
   decileColour,
   DIVERGING,
   diverging,
+  FOLLOW,
   HEALTHY,
   INK,
   INK_2,
@@ -38,11 +39,14 @@ export type Ctx = {
   factor: number
 }
 
+/** A point in time: a period index, or a named period resolved from the data. */
+type Mark = number | "stall" | "precovid" | "now"
+
 export type SceneDef = {
   id: string
   chapter: number
-  /** Plays the period index from `from` to `to` over `ms`, after `delay`. */
-  time?: { from: number; to: number; ms: number; delay?: number }
+  /** Plays time between two marks over `ms`, after `delay`: ONS periods, or calendar years for countries. */
+  time?: { from: Mark; to: Mark; ms: number; delay?: number; axis?: "periods" | "years" | "avoidable" }
   /** Shows the factor switcher. */
   factors?: boolean
   build: (c: Ctx) => Spec[]
@@ -53,9 +57,9 @@ export type SceneDef = {
 export const GAP_SPAN = 4.5
 export const CHANGE_SPAN = 1.5
 const WHITE = "#ffffff"
-const LAST = 21
 /** Deaths per 100,000 that one dot stands for. */
-export const UNIT = 5
+/** New axis ticks appear after existing ones finish moving, ms. */
+const TICK_WAIT = 600
 
 const gapColour = (v: number | null, uk: number) => (v === null ? NO_DATA : diverging(clamp01((v - uk + GAP_SPAN) / (2 * GAP_SPAN))))
 const changeColour = (d: number | null) => (d === null ? NO_DATA : diverging(clamp01((d + CHANGE_SPAN) / (2 * CHANGE_SPAN))))
@@ -132,7 +136,13 @@ function leDomain(c: Ctx): [number, number] {
   })
 }
 
-/** Label in a white pill with a leader to its anchor. Name in ink, figure in grey. */
+/** Timing of the mark a label belongs to, so the label travels with it. */
+type Timing = { delay?: number; dur?: number; enterDelay?: number }
+
+/**
+ * Label in a white pill with a leader to its anchor. Name in ink, figure in grey.
+ * Every part moves on its anchor's timing; a new pill fades in once its anchor has landed.
+ */
 function pill(
   key: string,
   anchor: Pt,
@@ -140,7 +150,7 @@ function pill(
   name: string,
   figure: string,
   c: Ctx,
-  o: { side?: "above" | "below" | "left" | "right"; lift?: number; delay?: number; alpha?: number; tone?: string } = {}
+  o: { side?: "above" | "below" | "left" | "right"; lift?: number; alpha?: number; tone?: string; at?: Timing } = {}
 ): Spec[] {
   const size = c.narrow ? 11.5 : 12.5
   const w1 = textWidth(name, size, 600)
@@ -158,7 +168,8 @@ function pill(
   if (side === "right") cx = anchor.x + r + lift + w / 2
   cx = clamp(cx, w / 2 + 8, c.W - w / 2 - 8)
   const a = o.alpha ?? 1
-  const delay = o.delay ?? 0
+  const at = o.at ?? {}
+  const t = { delay: at.delay ?? 0, dur: at.dur ?? 1000, enterDelay: (at.enterDelay ?? at.delay ?? 0) + (at.dur ?? 1000) * 0.85, ease: "inOut" as const }
   const left = cx - w / 2 + 11
   const lead =
     side === "above"
@@ -169,30 +180,38 @@ function pill(
           ? [anchor.x - r - 2, anchor.y, cx + w / 2, cy]
           : [anchor.x + r + 2, anchor.y, cx - w / 2, cy]
   return [
-    line(`${key}:lead`, lead[0], lead[1], lead[2], lead[3], { color: o.tone ?? INK, alpha: a * 0.8, layer: 9, delay }),
-    mark(`${key}:bg`, cx, cy, w, WHITE, { h, rad: h / 2, stroke: "#d6d5cf", strokeW: 1, layer: 10, arc: 0, enter: "fade", alpha: a, delay }),
-    txt(`${key}:name`, left, cy + 0.5, name, { size, weight: 600, color: o.tone ?? INK, layer: 11, alpha: a, delay }),
-    txt(`${key}:fig`, left + w1 + gap, cy + 0.5, figure, { size, color: INK_3, layer: 11, alpha: figure ? a : 0, delay }),
+    line(`${key}:lead`, lead[0], lead[1], lead[2], lead[3], { color: o.tone ?? INK, alpha: a * 0.8, layer: 9, ...t }),
+    mark(`${key}:bg`, cx, cy, w, WHITE, { h, rad: h / 2, stroke: "#d6d5cf", strokeW: 1, layer: 10, arc: 0, enter: "fade", alpha: a, ...t }),
+    txt(`${key}:name`, left, cy + 0.5, name, { size, weight: 600, color: o.tone ?? INK, layer: 11, alpha: a, ...t }),
+    txt(`${key}:fig`, left + w1 + gap, cy + 0.5, figure, { size, color: INK_3, layer: 11, alpha: figure ? a : 0, ...t }),
   ]
 }
 
-/** Ring and label for the place the reader follows. */
-function followSpecs(c: Ctx, p: Pt | null, r: number, figure: string, side: "above" | "below" | "left" | "right" = "above"): Spec[] {
+/** Ring and label for the place the reader follows, in its own accent. */
+function followSpecs(
+  c: Ctx,
+  p: Pt | null,
+  r: number,
+  figure: string,
+  side: "above" | "below" | "left" | "right" = "above",
+  at?: Timing,
+  lift = 18
+): Spec[] {
   if (!c.follow || !p) return []
   const a = c.data.areas.find((x) => x.code === c.follow)
   if (!a) return []
   return [
-    mark("follow:ring", p.x, p.y, r * 2 + 9, "none", { stroke: INK, strokeW: 1.75, layer: 9, arc: 0 }),
-    ...pill("follow", p, r + 4, a.name, figure, c, { side, lift: 18 }),
+    mark("follow:ring", p.x, p.y, r * 2 + 9, "none", { stroke: FOLLOW, strokeW: 2, layer: 9, arc: 0, pulse: true, ...at }),
+    ...pill("follow", p, r + 4, a.name, figure, c, { side, lift, tone: FOLLOW, at }),
   ]
 }
 
 /** Colour ramp legend for gap or change. */
-function legend(c: Ctx, kind: "gap" | "change", x: number, y: number): Spec[] {
+function legend(c: Ctx, kind: "gap" | "change", x: number, y: number, heading?: string): Spec[] {
   const w = c.narrow ? 140 : 180
   const sw = w / DIVERGING.length
   const span = kind === "gap" ? GAP_SPAN : CHANGE_SPAN
-  const title = kind === "gap" ? `Gap to UK average, ${years(ukNow(c))}` : "Change since 2011–13"
+  const title = heading ?? (kind === "gap" ? `Gap to UK figure, ${years(ukNow(c))}` : "Change since 2011–13")
   return [
     txt(`leg:title:${title}`, x, y, title, { size: 10, caps: true, weight: 600, color: INK_3 }),
     ...DIVERGING.map((col, i) => mark(`leg:${i}`, x + sw * (i + 0.5), y + 17, sw - 1.5, col, { h: 7, rad: 1.5, layer: 8, arc: 0, delay: i * 30 })),
@@ -214,9 +233,10 @@ function xTicks(
 ): Spec[] {
   const out: Spec[] = []
   const fmt = o.fmt ?? String
+  // New ticks wait until ticks that persist have slid into place, so labels never overprint.
   for (const t of ticks) {
-    out.push(txt(`${key}:${t}`, x(t), y, fmt(t), { align: "center", size: 11 }))
-    if (o.grid) out.push(line(`${key}:g:${t}`, x(t), o.grid[0], x(t), o.grid[1], { color: LINE, layer: 0 }))
+    out.push(txt(`${key}:${t}`, x(t), y, fmt(t), { align: "center", size: 11, enterDelay: TICK_WAIT }))
+    if (o.grid) out.push(line(`${key}:g:${t}`, x(t), o.grid[0], x(t), o.grid[1], { color: LINE, layer: 0, enterDelay: TICK_WAIT }))
   }
   if (o.ghosts) for (const t of o.ghosts.ticks) out.push(txt(`${o.ghosts.key}:${t}`, x(t), y, fmt(t), { align: "center", alpha: 0 }))
   return out
@@ -243,9 +263,10 @@ function open(c: Ctx): Spec[] {
   for (const r of rows) {
     const i = areaIndex(c, r.a.code)
     specs.push(
-      line(`life:${r.a.code}`, x(0), r.y, x(r.v), r.y, { color: r.colour, width: c.narrow ? 3 : 4, enter: "draw", dur: DRAW, delay: r.delay, layer: 2 }),
+      line(`life:${r.a.code}`, x(0), r.y, x(r.v), r.y, { color: r.colour, width: c.narrow ? 3 : 4, enter: "draw", dur: DRAW, enterDelay: r.delay, layer: 2 }),
       mark(`born:${r.a.code}`, x(0), r.y, c.narrow ? 7 : 9, r.colour, { enterDelay: r.delay, dur: 500, layer: 3 }),
-      mark(`a:${r.a.code}`, x(r.v), r.y, c.narrow ? 14 : 18, r.colour, {
+      // Line tips ride the lines as they draw; the swarm's dots split out of them.
+      mark(`tip:${r.a.code}`, x(r.v), r.y, c.narrow ? 14 : 18, r.colour, {
         hit: i,
         enter: { x: x(0), w: c.narrow ? 14 : 18, alpha: 1 },
         enterDelay: r.delay,
@@ -255,7 +276,7 @@ function open(c: Ctx): Spec[] {
         strokeW: 2.5,
         layer: 4,
       }),
-      txt(`name:${r.a.code}`, x(0), r.y - (c.narrow ? 18 : 22), r.a.name, { size: c.narrow ? 13 : 15, weight: 600, color: INK, delay: r.delay, enter: "rise" }),
+      txt(`name:${r.a.code}`, x(0), r.y - (c.narrow ? 18 : 22), r.a.name, { size: c.narrow ? 13 : 15, weight: 600, color: INK, enterDelay: r.delay, enter: "rise" }),
       txt(`val:${r.a.code}`, x(r.v) + (c.narrow ? 13 : 17), r.y + 1, "", {
         value: r.v,
         format: (v) => years(v),
@@ -275,10 +296,10 @@ function open(c: Ctx): Spec[] {
   const after = DRAW + 800
   specs.push(
     mark("gap:band", cx, (top + bottom) / 2, x(hv) - x(lv), INK, { h: bottom - top, rad: 6, alpha: 0.06, layer: 0, enter: "fade", enterDelay: after, dur: 900, arc: 0 }),
-    line("gap:guide", x(lv), rows[0].y - 10, x(lv), rows[1].y - 12, { dash: [2, 4], alpha: 0.55, enter: "draw", delay: after, dur: 700 }),
-    line("gap:br", x(lv), bottom + 12, x(hv), bottom + 12, { width: 1.25, enter: "draw", delay: after + 200, dur: 800 }),
-    line("gap:brL", x(lv), bottom + 6, x(lv), bottom + 18, { width: 1.25, delay: after + 200 }),
-    line("gap:brR", x(hv), bottom + 6, x(hv), bottom + 18, { width: 1.25, delay: after + 200 }),
+    line("gap:guide", x(lv), rows[0].y - 10, x(lv), rows[1].y - 12, { dash: [2, 4], alpha: 0.55, enter: "draw", enterDelay: after, dur: 700 }),
+    line("gap:br", x(lv), bottom + 12, x(hv), bottom + 12, { width: 1.25, enter: "draw", enterDelay: after + 200, dur: 800 }),
+    line("gap:brL", x(lv), bottom + 6, x(lv), bottom + 18, { width: 1.25, enterDelay: after + 200 }),
+    line("gap:brR", x(hv), bottom + 6, x(hv), bottom + 18, { width: 1.25, enterDelay: after + 200 }),
     txt("gap:label", cx, bottom + 38, "", {
       value: hv - lv,
       format: (v) => `${years(v)} years`,
@@ -287,7 +308,7 @@ function open(c: Ctx): Spec[] {
       color: INK,
       align: "center",
       enter: { value: 0 },
-      delay: after + 400,
+      enterDelay: after + 400,
       dur: 1100,
     })
   )
@@ -340,10 +361,11 @@ function swarm(c: Ctx): Spec[] {
     specs.push(
       mark(`a:${a.code}`, p.x, p.y, special ? r * 2 + 2 : r * 2, gapColour(value(a, c), uk), {
         hit: i,
+        enter: special ? { from: `tip:${a.code}` } : "grow",
         stroke: special ? INK : undefined,
         strokeW: special ? 1.25 : 0,
         delay: ((p.x - box.x) / box.w) * 300,
-        enterDelay: 700 + ranks[i] * 4.5,
+        enterDelay: special ? 250 : 700 + ranks[i] * 4.5,
         dur: 1100,
         ease: "inOut",
         layer: special ? 5 : 3,
@@ -368,15 +390,17 @@ function swarm(c: Ctx): Spec[] {
       align: "center",
     })
   )
-  specs.push(...pill(`lab:${low}`, lp, r + 1, pairOf(c).low.name, years(value(data.areas[areaIndex(c, low)], c)), c, { side: "below", lift: bottomY - lp.y + 18, tone: BRICK }))
-  specs.push(...pill(`lab:${high}`, hp, r + 1, pairOf(c).high.name, years(value(data.areas[areaIndex(c, high)], c)), c, { side: "below", lift: bottomY - hp.y + 18, tone: TEAL }))
+  const swarmAt = (p: Pt): Timing => ({ delay: ((p.x - box.x) / box.w) * 300, dur: 1100, enterDelay: 250 })
+  specs.push(...pill(`lab:${low}`, lp, r + 1, pairOf(c).low.name, years(value(data.areas[areaIndex(c, low)], c)), c, { side: "below", lift: bottomY - lp.y + 18, tone: BRICK, at: swarmAt(lp) }))
+  specs.push(...pill(`lab:${high}`, hp, r + 1, pairOf(c).high.name, years(value(data.areas[areaIndex(c, high)], c)), c, { side: "below", lift: bottomY - hp.y + 18, tone: TEAL, at: swarmAt(hp) }))
   const axisY = box.y + box.h - 6
   const ticks = x.ticks(c.narrow ? 5 : 8).filter((t) => t >= dom[0] && t <= dom[1])
   specs.push(line("age:base", x(dom[0]), axisY - 14, x(dom[1]), axisY - 14, { color: LINE, layer: 0 }))
   specs.push(...xTicks("x", x, ticks, axisY, { ghosts: { key: "age", ticks: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90] } }))
   specs.push(txt(`xt:le:${sex}`, x(dom[1]), axisY + 20, `${who(sex)}, life expectancy at birth, ${data.periods[now(c)]} →`, { align: "right", size: 10.5 }))
   const fi = c.follow ? areaIndex(c, c.follow) : -1
-  if (fi >= 0 && c.follow !== low && c.follow !== high) specs.push(...followSpecs(c, pos[fi], r, years(value(data.areas[fi], c)), "above"))
+  if (fi >= 0 && c.follow !== low && c.follow !== high && pos[fi])
+    specs.push(...followSpecs(c, pos[fi], r, years(value(data.areas[fi], c)), "above", { ...swarmAt(pos[fi] as Pt), enterDelay: 700 + ranks[fi] * 4.5 }))
   return specs
 }
 
@@ -394,6 +418,14 @@ function map(c: Ctx, mode: "gap" | "ends" | "change"): Spec[] {
   const { low, high } = pairCodes(c)
   const ext = data.extremes[c.sex]
   const ringed = new Set(mode === "ends" ? [...ext.topTen, ...ext.bottomTen] : [])
+  // North moves first; on the closing scene the map rebuilds from the south.
+  const mapAt = (p: Pt): Timing => ({
+    delay: ((p.y - box.y) / box.h) * 380,
+    enterDelay: 300 + ((box.y + box.h - p.y) / box.h) * 1500 + Math.abs(p.x - (box.x + box.w / 2)) * 0.6,
+    dur: 1200,
+  })
+  const xs = hex.points.map((p) => p.x)
+  const [landL, landR] = [Math.min(...xs) - w / 2, Math.max(...xs) + w / 2]
   const specs: Spec[] = []
   data.areas.forEach((a, i) => {
     const p = hex.points[i]
@@ -403,9 +435,7 @@ function map(c: Ctx, mode: "gap" | "ends" | "change"): Spec[] {
       mark(`a:${a.code}`, p.x, p.y, w, fill, {
         hit: i,
         alpha: dim ? 0.28 : 1,
-        delay: ((p.y - box.y) / box.h) * 380,
-        enterDelay: 300 + ((box.y + box.h - p.y) / box.h) * 1500 + Math.abs(p.x - (box.x + box.w / 2)) * 0.6,
-        dur: 1200,
+        ...mapAt(p),
         layer: ringed.has(a.code) ? 4 : 3,
       })
     )
@@ -430,16 +460,23 @@ function map(c: Ctx, mode: "gap" | "ends" | "change"): Spec[] {
     const label = c.narrow && n.key === "N" ? "N. Ireland" : n.name
     const tw = textWidth(label.toUpperCase(), 10, 600) * 1.12
     const edge = n.side < 0 ? Math.max(tw + 6, Math.min(...xs) - w) : Math.min(c.W - tw - 6, Math.max(...xs) + w)
-    specs.push(txt(`nation:${n.key}`, edge, midY, label, { align: n.side < 0 ? "right" : "left", size: 10, caps: true, weight: 600, color: INK_4, delay: 600, halo: true }))
+    specs.push(txt(`nation:${n.key}`, edge, midY, label, { align: n.side < 0 ? "right" : "left", size: 10, caps: true, weight: 600, color: INK_3, delay: 600, halo: true }))
   }
   specs.push(...legend(c, mode === "change" ? "change" : "gap", box.x, box.y + 6))
   const figure = (a: Area) => (mode === "change" ? signed(change(a, c)) : years(value(a, c)))
   const lp = hex.points[areaIndex(c, low)]
   const hp = hex.points[areaIndex(c, high)]
-  specs.push(...pill(`lab:${low}`, lp, w / 2, pairOf(c).low.name, figure(data.areas[areaIndex(c, low)]), c, { side: "left", lift: 16, tone: BRICK }))
-  specs.push(...pill(`lab:${high}`, hp, w / 2, pairOf(c).high.name, figure(data.areas[areaIndex(c, high)]), c, { side: "right", lift: 16, tone: TEAL }))
+  // Pills sit off the coast, past the edge of the land, so they hide no places.
+  const out = (p: Pt, side: "left" | "right") => ({ side, lift: (side === "left" ? p.x - landL : landR - p.x) + 12 - w / 2 })
+  const sideOf = (p: Pt) => (p.x < (landL + landR) / 2 ? "left" : "right")
+  specs.push(...pill(`lab:${low}`, lp, w / 2, pairOf(c).low.name, figure(data.areas[areaIndex(c, low)]), c, { ...out(lp, sideOf(lp)), tone: BRICK, at: mapAt(lp) }))
+  specs.push(...pill(`lab:${high}`, hp, w / 2, pairOf(c).high.name, figure(data.areas[areaIndex(c, high)]), c, { ...out(hp, sideOf(hp)), tone: TEAL, at: mapAt(hp) }))
   const fi = c.follow ? areaIndex(c, c.follow) : -1
-  if (fi >= 0 && c.follow !== low && c.follow !== high) specs.push(...followSpecs(c, hex.points[fi], w / 2, figure(data.areas[fi]), hex.points[fi].x > box.x + box.w / 2 ? "right" : "left"))
+  if (fi >= 0 && c.follow !== low && c.follow !== high) {
+    const fp = hex.points[fi]
+    const o = out(fp, sideOf(fp))
+    specs.push(...followSpecs(c, fp, w / 2, figure(data.areas[fi]), o.side, mapAt(fp), o.lift))
+  }
   return specs
 }
 
@@ -458,7 +495,7 @@ export function timeRange(box: Box, narrow: boolean): [number, number] {
 }
 
 function timeScales(c: Ctx, domain: [number, number]) {
-  const x = scaleLinear().domain([0, LAST]).range(timeRange(c.box, c.narrow))
+  const x = scaleLinear().domain([0, c.data.index.now]).range(timeRange(c.box, c.narrow))
   const y = scaleLinear().domain(domain).range([c.box.y + c.box.h - 30, c.box.y + 24])
   return { x, y }
 }
@@ -467,19 +504,29 @@ function timeAxes(c: Ctx, x: (v: number) => number, y: ReturnType<typeof scaleLi
   const specs: Spec[] = []
   const [y0] = y.range()
   for (const v of y.ticks(c.box.h < 380 ? 4 : 6)) {
-    specs.push(line(`yg:${v}`, x(0) - 6, y(v), x(LAST), y(v), { color: LINE, alpha: 0.9, layer: 0 }))
-    specs.push(txt(`y:${v}`, x(0) - 12, y(v), String(v), { align: "right" }))
+    specs.push(line(`yg:${v}`, x(0) - 6, y(v), x(c.data.index.now), y(v), { color: LINE, alpha: 0.9, layer: 0, enterDelay: TICK_WAIT }))
+    specs.push(txt(`y:${v}`, x(0) - 12, y(v), String(v), { align: "right", enterDelay: TICK_WAIT }))
   }
-  const idx = c.narrow ? [0, 10, LAST] : [0, 10, 16, LAST]
+  const { stall, precovid, now: last } = c.data.index
+  const idx = c.narrow ? [0, stall, last] : [0, stall, precovid, last]
   for (const i of idx) specs.push(txt(`px:${i}`, x(i), y0 + 20, c.data.periods[i], { align: "center" }))
   specs.push(txt(`yt:${title}`, x(0) - 12, c.box.y - 2, title, { size: 10, caps: true, weight: 600 }))
   return specs
 }
 
+/** Resolved time settings for a scene: index range and the labels its scrubber shows. */
+export function timeOf(scene: SceneDef, data: FilmData) {
+  if (!scene.time) return null
+  const labels =
+    scene.time.axis === "years" ? data.intl.years.map(String) : scene.time.axis === "avoidable" ? [data.avoidable.then, data.avoidable.now] : data.periods
+  const resolve = (m: Mark) => (typeof m === "number" ? m : m === "now" ? labels.length - 1 : data.index[m])
+  return { ...scene.time, from: resolve(scene.time.from), to: resolve(scene.time.to), labels }
+}
+
 /** Big faint period behind time charts. */
-function ghostYear(c: Ctx, x: number): TextSpec {
+function ghostYear(c: Ctx, x: number, labels = c.data.periods): TextSpec {
   const size = clamp(c.box.w * 0.13, 54, 140)
-  return txt("year", x, c.box.y + 22, c.data.periods[Math.round(c.t)], {
+  return txt("year", x, c.box.y + 22, labels[Math.round(c.t)], {
     font: "display",
     weight: 300,
     size,
@@ -490,10 +537,14 @@ function ghostYear(c: Ctx, x: number): TextSpec {
   })
 }
 
-/** Stack labels so none overlap; each keeps its preferred y where it can. */
-function spread<T extends { y: number }>(labels: T[], gap: number): T[] {
+/** Stack labels so none overlap, each as near its preferred y as it can be, and all below `hi`. */
+function spread<T extends { y: number }>(labels: T[], gap: number, hi = Infinity): T[] {
   const sorted = [...labels].sort((a, b) => a.y - b.y)
   for (let i = 1; i < sorted.length; i += 1) if (sorted[i].y - sorted[i - 1].y < gap) sorted[i].y = sorted[i - 1].y + gap
+  if (sorted.length && sorted[sorted.length - 1].y > hi) {
+    sorted[sorted.length - 1].y = hi
+    for (let i = sorted.length - 2; i >= 0; i -= 1) if (sorted[i + 1].y - sorted[i].y < gap) sorted[i].y = sorted[i + 1].y - gap
+  }
   return sorted
 }
 
@@ -519,20 +570,23 @@ function stallChart(c: Ctx, stage: Stage): Spec[] {
     })
   )
   const ukPts = cached(`ukpts:${sex}:${bk(box)}`, () => Float64Array.from(uk.flatMap((v, i) => [x(i), y(v)])))
+  const { stall: iStall, precovid: iPre, now: LAST } = data.index
   const draw = t / LAST
   const hx = x(t)
   const heads: { id: string; y: number; value: number; name: string; colour: string; weight: number }[] = []
   const ukc = ukNow(c)
 
+  // Colours don't change with time, so compute them once per sex.
+  const cols = cached(`gcol:${sex}`, () => data.areas.map((a) => gapColour(value(a, c), ukc)))
   data.areas.forEach((a, i) => {
     const special = a.code === low || a.code === high
     const followed = a.code === c.follow
-    const col = gapColour(value(a, c), ukc)
+    const col = cols[i]
     if (stage === "pair" && !special && !followed) {
       specs.push(path(`tr:${a.code}`, trails[i], { color: col, alpha: 0.1, width: 1, draw: 1, layer: 1 }))
       return
     }
-    const tone = a.code === low ? BRICK : a.code === high ? TEAL : followed ? INK : col
+    const tone = a.code === low ? BRICK : a.code === high ? TEAL : followed ? FOLLOW : col
     specs.push(
       path(`tr:${a.code}`, trails[i], {
         color: tone,
@@ -568,18 +622,32 @@ function stallChart(c: Ctx, stage: Stage): Spec[] {
     heads.push({ id: "head:uk", y: y(uv), value: uv, name: "UK", colour: INK, weight: 700 })
   } else {
     specs.push(path("tr:uk", ukPts, { width: 1.5, draw, layer: 2, dash: [4, 4], color: INK_3 }))
-    specs.push(txt("uk:pairlab", x(0) + 4, y(uk[0]) + 14, "UK", { size: 10.5, weight: 600, color: INK_3, halo: true }))
+    specs.push(txt("uk:pairlab", x(iStall), y(uk[iStall]) + 14, "UK", { align: "center", size: 10.5, weight: 600, color: INK_3, halo: true, alpha: clamp01(t - iStall) }))
   }
 
-  // Covid and the earlier trend, extended.
+  // Covid and the earlier trend, extended. The band spans periods that include 2020 or 2021.
   if (stage === "covid") {
+    const start = (p: string) => Number(p.slice(0, 4))
+    const cv = [data.periods.findIndex((p) => start(p) + 2 >= 2020), data.periods.findLastIndex((p) => start(p) <= 2021)]
     specs.push(
-      mark("covid", (x(17) + x(20)) / 2, (y(dom[0]) + y(dom[1])) / 2, x(20) - x(17), INK, { h: y(dom[0]) - y(dom[1]), rad: 0, alpha: 0.05, layer: 0, enter: "fade", arc: 0 }),
-      txt("covid:lab", (x(17) + x(20)) / 2, y(dom[1]) - 12, "COVID-19", { align: "center", size: 10, caps: true, weight: 600 })
+      mark("covid", (x(cv[0]) + x(cv[1])) / 2, (y(dom[0]) + y(dom[1])) / 2, x(cv[1]) - x(cv[0]), INK, { h: y(dom[0]) - y(dom[1]), rad: 0, alpha: 0.05, layer: 0, enter: "fade", arc: 0 }),
+      txt("covid:lab", (x(cv[0]) + x(cv[1])) / 2, y(dom[1]) - (c.narrow ? -12 : 12), "COVID-19", { align: "center", size: 10, caps: true, weight: 600 })
     )
     if (t >= LAST - 0.02) {
+      // The missing years: between the extended 2001–13 trend and what happened.
+      const area = cached(`short:${sex}:${bk(box)}`, () => {
+        const top: number[] = []
+        const back: number[] = []
+        for (let i = iStall; i <= LAST; i += 1) {
+          top.push(x(i), y(st.stall + st.pre * (i - iStall)))
+          // Prepend so the actual line runs back from the latest period, closing the shape.
+          back.unshift(x(i), y(uk[i]))
+        }
+        return Float64Array.from([...top, ...back])
+      })
+      specs.push(path("short:area", area, { area: true, color: BRICK, alpha: 0.2, layer: 4, enterDelay: 1200, dur: 1000 }))
       specs.push(
-        line("trend", x(10), y(st.stall), x(LAST), y(st.trendNow), { dash: [5, 5], width: 1.75, enter: "draw", dur: 1400, layer: 5 }),
+        line("trend", x(iStall), y(st.stall), x(LAST), y(st.trendNow), { dash: [5, 5], width: 1.75, enter: "draw", dur: 1400, layer: 5 }),
         mark("trend:end", x(LAST), y(st.trendNow), 10, "none", { stroke: INK, strokeW: 1.75, layer: 7, enterDelay: 1300, arc: 0 }),
         line("short:br", x(LAST) - 12, y(st.trendNow) + 7, x(LAST) - 12, y(st.now) - 8, { width: 1.25, enter: "draw", delay: 1500, dur: 600, layer: 6 })
       )
@@ -615,12 +683,14 @@ function stallChart(c: Ctx, stage: Stage): Spec[] {
       })
     )
   }
-  if (stage === "gains" || stage === "flat" || stage === "covid") paceAt(0, 10, st.pre, "pace:pre", stage === "gains" ? clamp01((t - 9) / 1) : 0.4)
+  // Each pace label shows once time has passed its stretch; in covid they give way to the trend line.
+  const fade = stage === "covid" ? 0.4 * (1 - clamp01((t - LAST + 1) * 1.5)) : 1
+  if (stage === "gains" || stage === "flat" || stage === "covid") paceAt(0, iStall, st.pre, "pace:pre", clamp01(t - iStall + 1) * (stage === "gains" ? 1 : stage === "flat" ? 0.4 : fade))
   if (stage === "flat" || stage === "covid") {
-    paceAt(10, 16, st.post, "pace:post", stage === "flat" ? clamp01((t - 15) / 1) : 0.4)
+    paceAt(iStall, iPre, st.post, "pace:post", clamp01(t - iPre + 1) * (stage === "flat" ? 1 : fade))
     specs.push(
-      line("stall:rule", x(10), y(dom[1]), x(10), y(dom[0]), { dash: [2, 4], alpha: 0.5, layer: 1 }),
-      txt("stall:lab", x(10) + 6, y(dom[1]) - 12, "Gains slow", { size: 10, caps: true, weight: 600, color: INK })
+      line("stall:rule", x(iStall), y(dom[1]), x(iStall), y(dom[0]), { dash: [2, 4], alpha: 0.5, layer: 1 }),
+      txt("stall:lab", x(iStall) + 6, y(dom[1]) - 12, "Gains slow", { size: 10, caps: true, weight: 600, color: INK })
     )
   }
 
@@ -631,7 +701,8 @@ function stallChart(c: Ctx, stage: Stage): Spec[] {
     specs.push(
       line("pair:br0", x(0) + 10, y(P.high[0] as number) + 8, x(0) + 10, y(P.low[0] as number) - 8, { width: 1.25, enter: "draw", layer: 6 }),
       txt("pair:br0:lab", x(0) + 18, (y(P.high[0] as number) + y(P.low[0] as number)) / 2, `${years(gapAt(0))} years`, { size: c.narrow ? 13 : 16, font: "display", color: INK, halo: true, layer: 9 }),
-      line("pair:brT", hx + 16, y(at(P.high, t) as number) + 8, hx + 16, y(at(P.low, t) as number) - 8, { width: 1.25, layer: 6 }),
+      // The moving bracket shows once it has pulled clear of the 2001–03 one.
+      line("pair:brT", hx + 16, y(at(P.high, t) as number) + 8, hx + 16, y(at(P.low, t) as number) - 8, { width: 1.25, layer: 6, alpha: clamp01(t - 1.5) }),
       txt("pair:brT:lab", hx + 24, (y(at(P.high, t) as number) + y(at(P.low, t) as number)) / 2, "", {
         value: gapAt(t),
         format: (v) => `${years(v)} ${c.narrow ? "yrs" : "years"}`,
@@ -639,6 +710,7 @@ function stallChart(c: Ctx, stage: Stage): Spec[] {
         font: "display",
         color: INK,
         halo: true,
+        alpha: clamp01(t - 1.5),
       })
     )
   }
@@ -663,14 +735,225 @@ function stallChart(c: Ctx, stage: Stage): Spec[] {
       txt(`pairname:${low}`, hx + 14, y(at(P.low, t) as number) + 18, "", { value: at(P.low, t) as number, format: (v) => `${short(pairOf(c).low.name, c.narrow)} ${years(v)}`, size: c.narrow ? 11 : 12.5, weight: 600, color: BRICK, halo: true })
     )
   }
+  // Lines keep the map's colours: each place's gap to the UK in the latest period.
+  if (stage !== "pair" && !c.narrow) specs.push(...legend(c, "gap", x(LAST) - 180, y(dom[0]) - 44, `Line colour: gap to UK, ${data.periods[LAST]}`))
   specs.push(ghostYear(c, x(0) + 6))
+  return specs
+}
+
+// ——— Among peers ————————————————————————————————————————————————
+
+function intlDomain(c: Ctx): [number, number] {
+  return cached(`idom:${c.sex}`, () => {
+    const v = c.data.intl.countries.flatMap((k) => k[c.sex]).filter((x): x is number => x !== null)
+    return [Math.floor(Math.min(...v)) - 1, Math.ceil(Math.max(...v)) + 1]
+  })
+}
+
+/** Familiar comparators, named and coloured in every international scene; the other members stay faint. */
+const FAMILIAR: Record<string, string> = {
+  JPN: "#7b5ea7",
+  ESP: "#c0692f",
+  ITA: "#5b8c3a",
+  FRA: "#3c6fb4",
+  IRL: "#a09a2c",
+  DEU: "#8a6e4b",
+  CAN: "#c24f7a",
+  USA: "#4d5561",
+}
+const countryStyle = (code: string) =>
+  code === "GBR"
+    ? { colour: INK, width: 3, alpha: 1, layer: 6, head: 12 }
+    : FAMILIAR[code]
+      ? { colour: FAMILIAR[code], width: 1.75, alpha: 0.9, layer: 4, head: 7 }
+      : { colour: INK_4, width: 1, alpha: 0.35, layer: 2, head: 4.5 }
+
+const flatPts = (values: (number | null)[], x: (i: number) => number, y: (v: number) => number) =>
+  Float64Array.from(values.flatMap((v, i) => [x(i), v === null ? NaN : y(v)]))
+
+/** The UK line among the other OECD members and their average, drawn with time. */
+function peers(c: Ctx): Spec[] {
+  const { intl } = c.data
+  const { sex, box } = c
+  const P = intl[sex]
+  const n = intl.years.length
+  const t = Math.min(c.t, n - 1)
+  const x = scaleLinear().domain([0, n - 1]).range(timeRange(box, c.narrow))
+  const dom = intlDomain(c)
+  const y = scaleLinear().domain(dom).range([box.y + box.h - 30, box.y + 24])
+  const specs: Spec[] = []
+  const [y0] = y.range()
+  for (const v of y.ticks(box.h < 380 ? 4 : 6)) {
+    specs.push(line(`yg:${v}`, x(0) - 6, y(v), x(n - 1), y(v), { color: LINE, alpha: 0.9, layer: 0 }))
+    specs.push(txt(`y:${v}`, x(0) - 12, y(v), String(v), { align: "right" }))
+  }
+  const marks = [2001, 2011, 2019, intl.years[n - 1]].filter((yr, i, a) => a.indexOf(yr) === i && (!c.narrow || yr !== 2019))
+  for (const yr of marks) specs.push(txt(`yr:${yr}`, x(intl.years.indexOf(yr)), y0 + 20, String(yr), { align: "center" }))
+  specs.push(txt(`yt:peers:${sex}`, x(0) - 12, box.y - 2, `${who(sex)} · life expectancy at birth · ${intl.countries.length} OECD countries`, { size: 10, caps: true, weight: 600 }))
+  const i2011 = intl.years.indexOf(2011)
+  specs.push(
+    line("peers:2011", x(i2011), y(dom[1]), x(i2011), y0, { dash: [2, 4], alpha: 0.5, layer: 1 }),
+    txt("peers:2011:lab", x(i2011) + 6, y(dom[1]) - 12, "2011", { size: 10, caps: true, weight: 600, color: INK })
+  )
+  const pts = cached(`ipts:${sex}:${bk(box)}`, () => intl.countries.map((k) => flatPts(k[sex], x, y)))
+  const avgPts = cached(`iavg:${sex}:${bk(box)}`, () => flatPts(P.average, x, y))
+  const draw = t / (n - 1)
+  const labels: { id: string; y: number; value: number; name: string; colour: string; weight: number }[] = []
+  intl.countries.forEach((k, i) => {
+    const uk = k.code === "GBR"
+    const st = countryStyle(k.code)
+    const v = at(k[sex], t)
+    specs.push(path(uk ? "tr:uk" : `c:${k.code}`, pts[i], { color: st.colour, width: st.width, alpha: st.alpha, draw, layer: st.layer }))
+    if (v === null) return
+    specs.push(
+      mark(uk ? "uk:head" : `ch:${k.code}`, x(t), y(v), st.head, st.colour, {
+        stroke: uk || FAMILIAR[k.code] ? PAPER : undefined,
+        strokeW: uk ? 2.5 : FAMILIAR[k.code] ? 1.25 : 0,
+        alpha: uk || FAMILIAR[k.code] ? 1 : 0.7,
+        layer: st.layer + 1,
+        enterDelay: 400 + i * 12,
+        dur: 1100,
+      })
+    )
+    if (uk) labels.push({ id: "head:uk", y: y(v), value: v, name: "UK", colour: INK, weight: 700 })
+    else if (FAMILIAR[k.code] && !c.narrow) labels.push({ id: `head:${k.code}`, y: y(v), value: v, name: k.name, colour: st.colour, weight: 600 })
+  })
+  // The OECD average: an unweighted mean of members, dashed.
+  const av = at(P.average, t) as number
+  specs.push(
+    path("oecd:avg", avgPts, { color: INK_3, width: 2, dash: [5, 4], draw, layer: 5 }),
+    mark("oecd:head", x(t), y(av), 7, INK_3, { stroke: PAPER, strokeW: 1.5, layer: 6, enterDelay: 400, dur: 1100 })
+  )
+  labels.push({ id: "head:oecd", y: y(av), value: av, name: c.narrow ? "OECD" : "OECD average", colour: INK_3, weight: 600 })
+  for (const l of spread(labels, 15, y0 - 6))
+    specs.push(txt(l.id, x(t) + 12, l.y, "", { value: l.value, format: (v) => `${l.name} ${years(v)}`, size: c.narrow ? 11 : 12.5, weight: l.weight, color: l.colour, halo: true }))
+  specs.push(ghostYear(c, x(0) + 6, intl.years.map(String)))
+  return specs
+}
+
+/** The same lines as ranks: 1 is the longest life expectancy that year. */
+function rankChart(c: Ctx): Spec[] {
+  const { intl } = c.data
+  const { sex, box } = c
+  const P = intl[sex]
+  const n = intl.years.length
+  const t = Math.min(c.t, n - 1)
+  const count = intl.countries.length
+  const x = scaleLinear().domain([0, n - 1]).range(timeRange(box, c.narrow))
+  const y = scaleLinear().domain([1, count]).range([box.y + 16, box.y + box.h - 30])
+  const [, y1] = y.range()
+  const specs: Spec[] = []
+  for (const r of [1, 10, 20, 30, count]) {
+    specs.push(line(`rkg:${r}`, x(0) - 6, y(r), x(n - 1), y(r), { color: LINE, alpha: 0.9, layer: 0, enterDelay: TICK_WAIT }))
+    specs.push(txt(`rk:${r}`, x(0) - 12, y(r), nth(r), { align: "right", enterDelay: TICK_WAIT }))
+  }
+  const marks = [2001, 2011, 2019, intl.years[n - 1]].filter((yr, i, a) => a.indexOf(yr) === i && (!c.narrow || yr !== 2019))
+  for (const yr of marks) specs.push(txt(`yr:${yr}`, x(intl.years.indexOf(yr)), y1 + 20, String(yr), { align: "center" }))
+  specs.push(txt(`yt:rank:${sex}`, x(0) - 12, box.y - 2, `${who(sex)} · rank among OECD countries · 1st = longest life`, { size: 10, caps: true, weight: 600 }))
+  const i2011 = intl.years.indexOf(2011)
+  specs.push(line("peers:2011", x(i2011), y(1) - 8, x(i2011), y1, { dash: [2, 4], alpha: 0.5, layer: 1 }))
+  const pts = cached(`rpts:${sex}:${bk(box)}`, () => P.ranks.map((r) => flatPts(r, x, y)))
+  // Labels list every country when rows are tall enough to read, otherwise the named ones.
+  const rowH = (y1 - y(1)) / (count - 1)
+  const all = rowH >= 11 && !c.narrow
+  const k = intl.countries.findIndex((cn) => cn.code === "GBR")
+  intl.countries.forEach((cn, i) => {
+    const uk = cn.code === "GBR"
+    const st = countryStyle(cn.code)
+    const r = at(P.ranks[i], t)
+    specs.push(path(uk ? "tr:uk" : `c:${cn.code}`, pts[i], { color: st.colour, width: st.width + (uk ? 0.5 : 0), alpha: Math.max(st.alpha, 0.45), draw: 1, layer: st.layer, dur: 1300 }))
+    if (r === null) return
+    specs.push(
+      mark(uk ? "uk:head" : `ch:${cn.code}`, x(t), y(r), st.head, st.colour, {
+        stroke: uk || FAMILIAR[cn.code] ? PAPER : undefined,
+        strokeW: uk ? 2.5 : FAMILIAR[cn.code] ? 1.25 : 0,
+        layer: st.layer + 1,
+        delay: (r / count) * 300,
+        dur: 1300,
+      })
+    )
+    if (uk || FAMILIAR[cn.code] || all)
+      specs.push(
+        txt(`rkl:${cn.code}`, x(t) + 12, y(r), uk ? `United Kingdom ${nth(Math.round(r))}` : cn.name, {
+          size: uk ? 12 : Math.min(11, rowH * 0.85),
+          weight: uk ? 700 : FAMILIAR[cn.code] ? 600 : 400,
+          color: uk ? INK : FAMILIAR[cn.code] ? st.colour : INK_3,
+          halo: true,
+          enterDelay: 900,
+        })
+      )
+  })
+  // Where the UK stood in 2001 and 2011.
+  for (const yr of [2001, 2011]) {
+    const i = intl.years.indexOf(yr)
+    const r = P.ranks[k][i]
+    if (r === null) continue
+    specs.push(
+      mark(`rk:uk:${yr}`, x(i), y(r), 9, PAPER, { stroke: INK, strokeW: 2, layer: 8, enterDelay: 1100 }),
+      txt(`rk:uk:${yr}:lab`, x(i), y(r) - 15, nth(r), { align: "center", size: 12, weight: 700, color: INK, halo: true, enterDelay: 1200 })
+    )
+  }
+  return specs
+}
+
+/** Each member's pace of gains before and after 2011, fastest recent pace first. */
+function pace(c: Ctx): Spec[] {
+  const P = c.data.intl[c.sex]
+  const names = new Map(c.data.intl.countries.map((k) => [k.code, k.name]))
+  const rows = [...P.rows].sort((a, b) => b.post - a.post)
+  // Phones only name the UK and the two ends; the rest are too tight to label.
+  const g = rowGeo(c, rows.length, { top: 58, bottom: 40, right: c.narrow ? 10 : 40, labelW: c.narrow ? 70 : 118 })
+  const lo = Math.min(0, Math.floor(Math.min(...rows.flatMap((r) => [r.pre, r.post])) * 12))
+  const hi = Math.ceil(Math.max(...rows.flatMap((r) => [r.pre, r.post])) * 12)
+  const x = scaleLinear().domain([lo, hi]).range([g.left, g.right])
+  const dot = clamp(g.rowH * 0.62, 4, 9)
+  const specs: Spec[] = []
+  rows.forEach((r, i) => {
+    const uk = r.code === "GBR"
+    const y = g.y(i)
+    const pre = x(r.pre * 12)
+    const post = x(r.post * 12)
+    const delay = i * 22
+    const named = !c.narrow || uk || i === 0 || i === rows.length - 1
+    specs.push(
+      txt(`pc:${r.code}:name`, g.left - 12, y, uk ? "United Kingdom" : (names.get(r.code) ?? r.code), {
+        align: "right",
+        size: c.narrow ? 10 : Math.min(11.5, g.rowH * 0.78),
+        weight: uk ? 700 : FAMILIAR[r.code] ? 600 : 400,
+        color: uk ? INK : (FAMILIAR[r.code] ?? INK_2),
+        alpha: named ? 1 : 0,
+        delay,
+      }),
+      line(`pc:${r.code}:link`, pre, y, post, y, { color: uk ? BRICK : LINE, width: uk ? 2.5 : 1.5, layer: 2, delay: delay + 500, enter: "draw", dur: 700 }),
+      mark(`pc:${r.code}:pre`, pre, y, uk ? dot + 2 : dot, "none", { stroke: uk ? INK : INK_4, strokeW: 1.25, layer: 4, delay, enterDelay: 350 + delay }),
+      mark(uk ? "uk:head" : `ch:${r.code}`, post, y, uk ? dot + 3 : dot, uk ? BRICK : (FAMILIAR[r.code] ?? INK_4), { stroke: uk ? PAPER : undefined, strokeW: uk ? 2 : 0, layer: 5, delay, dur: 1200 })
+    )
+    if (uk) {
+      specs.push(
+        mark("pc:uk:band", (g.left + g.right) / 2, y, g.right - g.left + 16, INK, { h: g.rowH, rad: 3, alpha: 0.06, layer: 0, arc: 0, enter: "fade" }),
+        txt("pc:uk:pre", pre + (pre > post ? 10 : -10), y, years(r.pre * 12), { align: pre > post ? "left" : "right", size: 11.5, weight: 700, color: INK, halo: true, delay: 900 }),
+        txt("pc:uk:post", post + (pre > post ? -12 : 12), y, years(r.post * 12), { align: pre > post ? "right" : "left", size: 11.5, weight: 700, color: BRICK, halo: true, delay: 900 })
+      )
+    }
+  })
+  const axisY = g.bottom + 22
+  specs.push(...xTicks("mo", x, Array.from({ length: hi - lo + 1 }, (_, i) => lo + i), axisY, { grid: [g.top - 6, g.bottom] }))
+  specs.push(txt("mo:title", g.right, axisY + 20, "Months of life expectancy gained per year →", { align: "right", size: 10.5 }))
+  const keyY = g.top - 34
+  specs.push(
+    txt(`pace:title:${c.sex}`, c.box.x, keyY - 18, `${who(c.sex)} · pace of gains · ${rows.length} OECD countries`, { size: 10, caps: true, weight: 600 }),
+    mark("pace:k1", g.left + 5, keyY + 4, 9, "none", { stroke: INK_3, strokeW: 1.5, arc: 0, layer: 8 }),
+    txt("pace:k1t", g.left + 15, keyY + 4, "2001–11", { size: 11, color: INK_2 }),
+    mark("pace:k2", g.left + 84, keyY + 4, 9, INK_4, { arc: 0, layer: 8 }),
+    txt("pace:k2t", g.left + 94, keyY + 4, c.narrow ? "2011–19" : "2011–19, before COVID-19", { size: 11, color: INK_2 })
+  )
   return specs
 }
 
 // ——— III. The split ————————————————————————————————————————————————
 
-function rowGeo(c: Ctx, count: number, o: { top?: number; right?: number; bottom?: number } = {}) {
-  const labelW = c.narrow ? 34 : 128
+function rowGeo(c: Ctx, count: number, o: { top?: number; right?: number; bottom?: number; labelW?: number } = {}) {
+  const labelW = o.labelW ?? (c.narrow ? 34 : 128)
   const left = c.box.x + labelW
   const right = c.box.x + c.box.w - (o.right ?? 0)
   const top = c.box.y + (o.top ?? 30)
@@ -695,6 +978,16 @@ function rowLabels(c: Ctx, g: ReturnType<typeof rowGeo>, count: number, followRo
 function followRowOf(c: Ctx): number | null {
   const a = c.follow ? c.data.areas.find((x) => x.code === c.follow) : null
   return a?.decile ? a.decile - 1 : null
+}
+
+/** Marks the followed place's tenth: an accent dot by its row label and a note by the chart title. */
+function followRowMark(c: Ctx, g: ReturnType<typeof rowGeo>, row: number | null): Spec[] {
+  const a = c.follow ? c.data.areas.find((x) => x.code === c.follow) : null
+  if (!a || row === null) return []
+  return [
+    mark("follow:rowdot", g.labelX - 10, g.y(row), 7, FOLLOW, { arc: 0, layer: 8, pulse: true, stroke: FOLLOW }),
+    txt("follow:rownote", c.box.x + c.box.w, g.top - 38, `${a.name}: tenth ${row + 1}`, { align: "right", size: 11, weight: 600, color: FOLLOW }),
+  ]
 }
 
 function tenths(c: Ctx, mode: "level" | "change"): Spec[] {
@@ -722,10 +1015,13 @@ function tenths(c: Ctx, mode: "level" | "change"): Spec[] {
     if (!p) return
     const eng = a.decile !== null
     const fill = mode === "change" ? changeColour(change(a, c)) : eng ? decileColour(a.decile as number) : NO_DATA
+    const special = a.code === pairOf(c).low.code || a.code === pairOf(c).high.code
     specs.push(
-      mark(`a:${a.code}`, p.x, p.y, r * 2, fill, {
+      mark(`a:${a.code}`, p.x, p.y, special ? r * 2 + 2 : r * 2, fill, {
         hit: i,
-        alpha: eng ? 1 : 0.45,
+        alpha: eng || special ? 1 : 0.45,
+        stroke: special ? INK : undefined,
+        strokeW: special ? 1.5 : 0,
         delay: (a.decile ?? 11) * 45 + ((p.x - g.left) / (g.right - g.left)) * 200,
         dur: 1200,
         layer: 3,
@@ -760,15 +1056,15 @@ function tenths(c: Ctx, mode: "level" | "change"): Spec[] {
   } else {
     specs.push(...xTicks("xc", x, [-2, -1, 0, 1, 2], axisY, { fmt: (v) => signed(v, 0), grid: [g.top, g.bottom] }))
     specs.push(
-      line("zero", x(0), g.top - 12, x(0), g.bottom, { width: 1.25, layer: 2 }),
-      txt("fell", x(0) - 8, g.top - 12, "← fell", { align: "right", size: 11.5, weight: 600, color: BRICK }),
-      txt("rose", x(0) + 8, g.top - 12, "rose →", { size: 11.5, weight: 600, color: TEAL }),
+      line("zero", x(0), g.top - 12, x(0), g.bottom, { width: 1.25, layer: 2, enterDelay: 400, enter: "draw" }),
+      txt("fell", x(0) - 8, g.top - 12, "← fell", { align: "right", size: 11.5, weight: 600, color: BRICK, enterDelay: 700 }),
+      txt("rose", x(0) + 8, g.top - 12, "rose →", { size: 11.5, weight: 600, color: TEAL, enterDelay: 700 }),
       txt("avg:title", c.box.x + c.box.w, g.top - 12, c.narrow ? "Avg" : "Average", { align: "right", size: 10, caps: true, weight: 600 }),
       txt("xt:change", g.right, axisY + 20, `Change in ${who(sex).toLowerCase()}'s life expectancy since 2011–13, years →`, { align: "right", size: 10.5 })
     )
   }
   const fi = c.follow ? areaIndex(c, c.follow) : -1
-  if (fi >= 0 && pos[fi]) specs.push(...followSpecs(c, pos[fi], r, mode === "change" ? signed(change(data.areas[fi], c)) : years(value(data.areas[fi], c)), "above"))
+  if (fi >= 0 && pos[fi]) specs.push(...followSpecs(c, pos[fi], r, mode === "change" ? signed(change(data.areas[fi], c)) : years(value(data.areas[fi], c)), "right", undefined, 10))
   return specs
 }
 
@@ -792,15 +1088,16 @@ function widening(c: Ctx): Spec[] {
     const edge = d === 0 || d === 9
     const col = decileColour(d + 1)
     specs.push(
-      path(`decl:${d}`, lines[d], { color: col, width: edge ? 3 : d === followRow ? 2 : 1.25, alpha: edge || d === followRow ? 1 : 0.55, draw: t / LAST, layer: 2 }),
+      path(`decl:${d}`, lines[d], { color: col, width: edge ? 3 : d === followRow ? 2 : 1.25, alpha: edge || d === followRow ? 1 : 0.55, draw: t / data.index.now, layer: 2 }),
       mark(`dec:${d}`, hx, y(at(row, t) as number), edge ? 12 : 8, col, { stroke: PAPER, strokeW: 1.75, layer: 5, enterDelay: 500 + d * 40, dur: 900 })
     )
   })
-  // Places merge into their tenth's head.
+  // Places merge into their tenth's average where it ends, in the latest period, while the lines draw from 2001.
+  const last = data.index.now
   data.areas.forEach((a) => {
     if (a.decile === null) return
     const d = a.decile - 1
-    specs.push(mark(`a:${a.code}`, hx, y(at(rows[d], t) as number), 4, decileColour(a.decile), { alpha: 0, dur: 1300, delay: d * 40, layer: 4 }))
+    specs.push(mark(`a:${a.code}`, x(last), y(rows[d][last]), 4, decileColour(a.decile), { alpha: 0, dur: 1300, delay: d * 40, layer: 4 }))
   })
   const m0 = at(rows[0], t) as number
   const m9 = at(rows[9], t) as number
@@ -826,13 +1123,13 @@ function widening(c: Ctx): Spec[] {
     })
   )
   // Markers left behind at 2001–03 and 2011–13.
-  for (const i of [0, 10]) {
+  for (const i of [0, data.index.stall]) {
     if (t < i + 0.6) continue
     const top = y(rows[9][i]) - 8
     const bottom = y(rows[0][i]) + 8
     specs.push(
       line(`dgap:${i}`, x(i), top, x(i), bottom, { width: 1, alpha: 0.6, dash: [2, 3], layer: 1, enter: "draw" }),
-      txt(`dgap:${i}:lab`, x(i), top - 12, `${years(rows[9][i] - rows[0][i])} yrs`, { align: "center", size: 11.5, weight: 600, color: INK, halo: true })
+      txt(`dgap:${i}:lab`, i === 0 ? x(i) + 4 : x(i), top - 12, `${years(rows[9][i] - rows[0][i])} yrs`, { align: i === 0 ? "left" : "center", size: 11.5, weight: 600, color: INK, halo: true })
     )
   }
   if (followRow !== null && c.follow) {
@@ -844,49 +1141,74 @@ function widening(c: Ctx): Spec[] {
   return specs
 }
 
+/**
+ * Avoidable deaths per tenth as lollipops. The ring is the earlier rate; the dot slides from it to the
+ * latest rate as time runs 0 → 1, trailing brick where the rate rose and teal where it fell.
+ */
 function avoidable(c: Ctx): Spec[] {
   const { data, sex } = c
   const rows = data.avoidable[sex]
-  const g = rowGeo(c, 10, { top: 58, right: c.narrow ? 40 : 64, bottom: 40 })
-  const counts = rows.map((r) => Math.round(r.now / UNIT))
-  const most = Math.max(...counts, ...rows.map((r) => Math.round(r.then / UNIT)))
-  const width = g.right - g.left
-  const { lines, pitch } = [1, 2, 3, 4]
-    .map((n) => ({ lines: n, pitch: Math.min(17, width / Math.ceil(most / n), (g.rowH * 0.8) / n) }))
-    .reduce((a, b) => (b.pitch > a.pitch * 1.05 ? b : a))
-  const r = pitch * 0.36
-  const xOf = (col: number) => g.left + col * pitch + pitch / 2
-  const yOf = (d: number, ln: number) => g.y(d) - ((lines - 1) * pitch) / 2 + ln * pitch
+  const t = clamp01(c.t)
+  const g = rowGeo(c, 10, { top: 58, right: c.narrow ? 64 : 110, bottom: 40 })
+  const top = Math.max(...rows.flatMap((r) => [r.then, r.now]))
+  const x = scaleLinear().domain([0, top]).nice(5).range([g.left, g.right])
+  const dot = c.narrow ? 11 : 14
   const specs: Spec[] = []
   const followRow = followRowOf(c)
   rows.forEach((row, d) => {
+    const y = g.y(d)
     const col = decileColour(d + 1)
-    for (let k = 0; k < counts[d]; k += 1) {
-      const cx = Math.floor(k / lines)
-      specs.push(
-        mark(`u:${d}:${k}`, xOf(cx), yOf(d, k % lines), r * 2, col, {
-          enter: { from: `dec:${d}`, w: r * 2 },
-          enterDelay: 150 + cx * 14 + d * 30,
-          delay: cx * 6 + d * 20,
-          dur: 1000,
-          layer: 3,
-        })
-      )
-    }
-    const endX = g.left + Math.ceil(counts[d] / lines) * pitch
-    const thenX = g.left + (row.then / UNIT / lines) * pitch
+    const v = row.then + (row.now - row.then) * t
+    const rose = row.now > row.then
+    const delay = d * 110
     specs.push(
-      line(`then:${d}`, thenX, g.y(d) - (lines * pitch) / 2 - 2, thenX, g.y(d) + (lines * pitch) / 2 + 2, { width: 1.75, color: INK, layer: 5, delay: 1400 + d * 40 }),
-      txt(`cnt:${d}`, Math.max(endX, thenX) + 9, g.y(d), "", { value: row.now, format: (v) => String(Math.round(v)), size: c.narrow ? 11 : 12, weight: d === 0 || d === 9 ? 700 : 500, color: INK, enter: { value: 0 }, enterDelay: 300 + d * 60, dur: 1500 })
+      line(`avs:${d}`, x(0), y, x(v), y, { color: col, width: c.narrow ? 2 : 2.5, alpha: 0.4, layer: 1, enter: "draw", enterDelay: 500 + delay, dur: 900 }),
+      mark(`avr:${d}`, x(row.then), y, dot + 4, "none", { stroke: INK_3, strokeW: 1.5, layer: 4, enterDelay: 900 + delay, dur: 500 }),
+      line(`avl:${d}`, x(row.then), y, x(v), y, { color: rose ? BRICK : TEAL, width: 3.5, layer: 3, alpha: t > 0 ? 1 : 0 }),
+      mark(`dec:${d}`, x(v), y, dot, col, { stroke: PAPER, strokeW: 1.5, layer: 5, delay, dur: 1200, arc: 0.12 }),
+      txt(`cnt:${d}`, Math.max(x(v), x(row.then)) + dot, y, "", {
+        value: v,
+        format: (n) => String(Math.round(n)),
+        size: c.narrow ? 11.5 : 12.5,
+        weight: d === 0 || d === 9 ? 700 : 500,
+        color: INK,
+        enterDelay: 900 + delay,
+      }),
+      txt(`chg:${d}`, Math.max(x(v), x(row.then)) + dot + (c.narrow ? 26 : 32), y, signed(row.now - row.then, 0), {
+        size: c.narrow ? 10.5 : 11.5,
+        weight: 600,
+        color: rose ? BRICK : TEAL,
+        alpha: clamp01(t * 2 - 1),
+      })
     )
   })
-  specs.push(...rowLabels(c, g, 10, followRow))
+  // The most deprived tenth against the least, once the dots have landed.
+  const ratio = rows[0].now / rows[9].now
   specs.push(
-    txt("av:title", g.labelX, g.top - 38, `${who(sex)} · avoidable deaths under 75 · per 100,000 a year · ${data.avoidable.now}`, { size: 10, caps: true, weight: 600 }),
-    mark("av:key:dot", g.left + 4, g.top - 16, r * 2, decileColour(3), { layer: 8, arc: 0 }),
-    txt("av:key", g.left + 12, g.top - 16, `= ${UNIT} deaths per 100,000`, { size: 11, color: INK_2 }),
-    line("av:key:then", g.left + (c.narrow ? 150 : 190), g.top - 23, g.left + (c.narrow ? 150 : 190), g.top - 9, { width: 1.75, layer: 8 }),
-    txt("av:key:thenlab", g.left + (c.narrow ? 157 : 197), g.top - 16, `${data.avoidable.then} level`, { size: 11, color: INK_2 })
+    txt("av:ratio", c.box.x + c.box.w, g.y(0), "", {
+      value: ratio,
+      format: (n) => `${n.toFixed(1)}×`,
+      align: "right",
+      size: c.narrow ? 17 : 24,
+      font: "display",
+      color: INK,
+      enter: { value: 1 },
+      enterDelay: 1800,
+      dur: 900,
+      alpha: c.narrow ? 0 : 1,
+    }),
+    txt("av:ratiolab", c.box.x + c.box.w, g.y(0) + 18, "the least deprived rate", { align: "right", size: 10, color: INK_3, enterDelay: 1800, alpha: c.narrow ? 0 : 1 })
+  )
+  specs.push(...rowLabels(c, g, 10, followRow), ...followRowMark(c, g, followRow))
+  const axisY = g.bottom + 22
+  specs.push(...xTicks("avx", x, x.ticks(c.narrow ? 4 : 5), axisY, { grid: [g.top - 8, g.bottom] }))
+  specs.push(
+    txt("avx:title", g.right, axisY + 20, "Deaths per 100,000 a year, age-standardised →", { align: "right", size: 10.5 }),
+    txt(`av:title:${sex}`, g.labelX, g.top - 38, `${who(sex)} · avoidable deaths under 75 · by deprivation tenth`, { size: 10, caps: true, weight: 600 }),
+    mark("av:k1", g.left + 6, g.top - 16, 12, "none", { stroke: INK_3, strokeW: 1.5, arc: 0, layer: 8 }),
+    txt("av:k1t", g.left + 17, g.top - 16, data.avoidable.then, { size: 11, color: INK_2 }),
+    mark("av:k2", g.left + 86, g.top - 16, 10, decileColour(3), { arc: 0, layer: 8 }),
+    txt("av:k2t", g.left + 96, g.top - 16, data.avoidable.now, { size: 11, color: INK_2 })
   )
   return specs
 }
@@ -906,25 +1228,25 @@ function healthy(c: Ctx): Spec[] {
     const L = row[sex].life
     const y = g.y(d)
     specs.push(
-      mark(`hb:${d}`, (x(0) + x(h)) / 2, y, x(h) - x(0), HEALTHY, { h: bh, rad: 3, arc: 0, enter: { x: x(0), w: 0, h: bh, alpha: 1 }, enterDelay: 350 + d * 60, dur: 1300, layer: 2 }),
-      mark(`pb:${d}`, (x(h) + x(L)) / 2 + 1, y, Math.max(0, x(L) - x(h) - 2), POOR, { h: bh, rad: 3, hatch: true, arc: 0, enter: { x: x(h), w: 0, h: bh, alpha: 1 }, enterDelay: 1300 + d * 60, dur: 900, layer: 2 }),
-      txt(`hbv:${d}`, x(h) - 8, y + 0.5, "", { value: h, format: (v) => years(v), align: "right", size: c.narrow ? 10.5 : 11.5, weight: 600, color: WHITE, enter: { value: 0 }, enterDelay: 350 + d * 60, dur: 1300, layer: 9 }),
-      txt(`pbv:${d}`, (x(h) + x(L)) / 2 + 1, y + 0.5, years(L - h), { align: "center", size: c.narrow ? 10 : 11, color: INK_2, enterDelay: 1900 + d * 50, layer: 9, alpha: x(L) - x(h) > 34 ? 1 : 0 }),
-      txt(`life:${d}`, x(L) + 8, y + 0.5, years(L), { size: c.narrow ? 11 : 12, weight: 700, color: INK, enterDelay: 2000 + d * 50 })
+      // Bars grow together, so no tenth looks healthiest just because it started first.
+      mark(`hb:${d}`, (x(0) + x(h)) / 2, y, x(h) - x(0), HEALTHY, { h: bh, rad: 3, arc: 0, enter: { x: x(0), w: 0, h: bh, alpha: 1 }, enterDelay: 400 + d * 12, dur: 1400, layer: 2 }),
+      mark(`pb:${d}`, (x(h) + x(L)) / 2 + 1, y, Math.max(0, x(L) - x(h) - 2), POOR, { h: bh, rad: 3, hatch: true, arc: 0, enter: { x: x(h), w: 0, h: bh, alpha: 1 }, enterDelay: 1700 + d * 12, dur: 900, layer: 2 }),
+      txt(`hbv:${d}`, x(h) - 8, y + 0.5, "", { value: h, format: (v) => years(v), align: "right", size: c.narrow ? 10.5 : 11.5, weight: 600, color: WHITE, enter: { x: x(0) - 8, value: 0, alpha: 1 }, enterDelay: 400 + d * 12, dur: 1400, layer: 9 }),
+      txt(`pbv:${d}`, (x(h) + x(L)) / 2 + 1, y + 0.5, years(L - h), { align: "center", size: c.narrow ? 10 : 11, color: INK_2, enterDelay: 2300 + d * 12, layer: 9, alpha: x(L) - x(h) > 34 ? 1 : 0 }),
+      txt(`life:${d}`, x(L) + 8, y + 0.5, years(L), { size: c.narrow ? 11 : 12, weight: 700, color: INK, enterDelay: 2400 + d * 12 })
     )
-    // Unit dots from the previous scene pour into the bar and fade.
-    const n = Math.round(data.avoidable[sex][d].now / UNIT)
-    for (let k = 0; k < n; k += 1) specs.push(mark(`u:${d}:${k}`, x(0) + (k / n) * (x(L) - x(0)), y, 2, HEALTHY, { alpha: 0, dur: 900, delay: k * 4, layer: 4 }))
   })
   // The healthy-years gap between the ends.
   const h0 = rows[0][sex].healthy
   const h9 = rows[9][sex].healthy
   const topY = g.top - 8
   specs.push(
-    line("hg:0", x(h0), topY, x(h0), g.bottom, { dash: [2, 3], alpha: 0.6, enter: "draw", delay: 2600, layer: 6 }),
-    line("hg:9", x(h9), topY, x(h9), g.bottom, { dash: [2, 3], alpha: 0.6, enter: "draw", delay: 2600, layer: 6 }),
-    line("hg:br", x(h0), topY, x(h9), topY, { width: 1.25, enter: "draw", delay: 2900, layer: 6 }),
-    txt("hg:lab", (x(h0) + x(h9)) / 2, topY - 14, "", { value: h9 - h0, format: (v) => `${years(v)} healthy years`, align: "center", size: c.narrow ? 13 : 16, font: "display", color: INK, halo: true, enter: { value: 0 }, delay: 3000, dur: 900 })
+    // Short ticks down to the first row's bar end and the last row's, joined by a bracket above.
+    line("hg:0", x(h0), topY, x(h0), g.y(0) - bh / 2 - 2, { alpha: 0.7, enter: "draw", enterDelay: 2700, layer: 6 }),
+    line("hg:9", x(h9), topY, x(h9), g.y(0) - bh / 2 - 2, { alpha: 0.7, enter: "draw", enterDelay: 2700, layer: 6 }),
+    line("hg:br", x(h0), topY, x(h9), topY, { width: 1.25, enter: "draw", enterDelay: 2900, layer: 6 }),
+    txt("hg:lab", (x(h0) + x(h9)) / 2, topY - 14, "", { value: h9 - h0, format: (v) => `${years(v)} healthy years`, align: "center", size: c.narrow ? 13 : 16, font: "display", color: INK, halo: true, enter: { value: 0 }, enterDelay: 3000, dur: 900 }),
+    ...followRowMark(c, g, followRow)
   )
   specs.push(...rowLabels(c, g, 10, followRow))
   const axisY = g.bottom + 22
@@ -961,20 +1283,31 @@ function scatter(c: Ctx): Spec[] {
   const r = clamp(box.w / 150, 2.8, 5)
   const specs: Spec[] = []
   for (const v of y.ticks(5)) {
-    specs.push(line(`yg:${v}`, left - 6, y(v), right, y(v), { color: LINE, alpha: 0.9, layer: 0 }))
-    specs.push(txt(`y:${v}`, left - 12, y(v), String(v), { align: "right" }))
+    specs.push(line(`yg:${v}`, left - 6, y(v), right, y(v), { color: LINE, alpha: 0.9, layer: 0, enterDelay: TICK_WAIT }))
+    specs.push(txt(`y:${v}`, left - 12, y(v), String(v), { align: "right", enterDelay: TICK_WAIT }))
   }
   const fmt = (v: number) => (f.unit === "%" ? `${v}%` : String(v))
   for (const v of x.ticks(5)) {
-    specs.push(txt(`f:${f.key}:${v}`, x(v), bottom + 20, fmt(v), { align: "center" }))
-    specs.push(line(`fg:${f.key}:${v}`, x(v), top, x(v), bottom, { color: LINE, alpha: 0.6, layer: 0 }))
+    specs.push(txt(`f:${f.key}:${v}`, x(v), bottom + 20, fmt(v), { align: "center", enterDelay: TICK_WAIT }))
+    specs.push(line(`fg:${f.key}:${v}`, x(v), top, x(v), bottom, { color: LINE, alpha: 0.6, layer: 0, enterDelay: TICK_WAIT }))
   }
+  // Key for the deprivation colours, in the empty low-low corner.
+  const keyX = left + 12
+  const keyY = bottom - 16
+  specs.push(txt("sc:key", keyX, keyY - 16, c.narrow ? "Deprivation tenth" : "Deprivation tenth of the area", { size: 10, color: INK_3, halo: true, enterDelay: 1600 }))
+  for (let d = 1; d <= 10; d += 1) specs.push(mark(`sc:key:${d}`, keyX + (d - 1) * 11 + 4, keyY, 8, decileColour(d), { arc: 0, layer: 8, enterDelay: 1600 + d * 25 }))
+  specs.push(
+    txt("sc:key:lo", keyX, keyY + 14, "1 most", { size: 9.5, color: INK_3, halo: true, enterDelay: 1600 }),
+    txt("sc:key:hi", keyX + 9 * 11 + 8, keyY + 14, "10 least", { size: 9.5, color: INK_3, halo: true, align: "right", enterDelay: 1600 })
+  )
   specs.push(
     txt(`xt:${f.key}`, right, bottom + 40, `${f.label}, ${f.period} →`, { align: "right", size: 10.5 }),
     txt(`yt:sc:${sex}`, left - 12, top - 22, `${who(sex)} · life expectancy at birth`, { size: 10, caps: true, weight: 600 })
   )
   const { low, high } = pairCodes(c)
+  const at = (i: number, d: number): Timing => ({ enterDelay: 150 + d * 50 + Math.abs(Math.sin(i)) * 400, delay: Math.abs(Math.sin(i * 7.3)) * 250, dur: 1250 })
   for (const { a, i } of eng) {
+    if (a.decile === null) continue
     const special = a.code === low || a.code === high
     specs.push(
       mark(`a:${a.code}`, x(a.f[f.key] as number), y(value(a, c) as number), special ? r * 2 + 3 : r * 2, decileColour(a.decile as number), {
@@ -982,10 +1315,8 @@ function scatter(c: Ctx): Spec[] {
         alpha: 0.92,
         stroke: special ? INK : PAPER,
         strokeW: special ? 1.5 : 0.6,
-        enter: { from: `hb:${(a.decile as number) - 1}`, w: 3 },
-        enterDelay: 150 + (a.decile as number) * 50 + Math.abs(Math.sin(i)) * 400,
-        delay: Math.abs(Math.sin(i * 7.3)) * 250,
-        dur: 1250,
+        enter: { from: `hb:${a.decile - 1}`, w: 3 },
+        ...at(i, a.decile),
         layer: special ? 5 : 3,
       })
     )
@@ -1010,17 +1341,22 @@ function scatter(c: Ctx): Spec[] {
       line("eng", x(f.england), top, x(f.england), bottom, { dash: [2, 3], alpha: 0.6, layer: 1 }),
       txt("eng:lab", x(f.england) + 5, bottom - 10, `England ${years(f.england, f.decimals)}${f.unit === "%" ? "%" : ""}`, { size: 10.5, color: INK_2, halo: true })
     )
-  const li = areaIndex(c, low)
-  const hi = areaIndex(c, high)
-  const lp = { x: x(data.areas[li].f[f.key] as number), y: y(value(data.areas[li], c) as number) }
-  const hp = { x: x(data.areas[hi].f[f.key] as number), y: y(value(data.areas[hi], c) as number) }
+  // Label the two places, where they have a figure (England only), riding with their dots.
   const fx = (a: Area) => (f.unit === "%" ? `${years(a.f[f.key])}%` : years(a.f[f.key], f.decimals))
-  specs.push(...pill(`lab:${low}`, lp, r + 1.5, pairOf(c).low.name, fx(data.areas[li]), c, { side: lp.x > (left + right) / 2 ? "left" : "right", lift: 14, tone: BRICK }))
-  specs.push(...pill(`lab:${high}`, hp, r + 1.5, pairOf(c).high.name, fx(data.areas[hi]), c, { side: hp.x > (left + right) / 2 ? "left" : "right", lift: 14, tone: TEAL }))
+  const placeAt = (i: number) => ({ x: x(data.areas[i].f[f.key] as number), y: y(value(data.areas[i], c) as number) })
+  for (const [code, name, tone] of [
+    [low, pairOf(c).low.name, BRICK],
+    [high, pairOf(c).high.name, TEAL],
+  ] as const) {
+    const i = areaIndex(c, code)
+    const a = data.areas[i]
+    if (a.f[f.key] === null || a.decile === null) continue
+    const p = placeAt(i)
+    specs.push(...pill(`lab:${code}`, p, r + 1.5, name, fx(a), c, { side: p.x > (left + right) / 2 ? "left" : "right", lift: 14, tone, at: at(i, a.decile) }))
+  }
   const fi = c.follow ? areaIndex(c, c.follow) : -1
-  if (fi >= 0 && c.follow !== low && c.follow !== high && data.areas[fi].f[f.key] !== null) {
-    const p = { x: x(data.areas[fi].f[f.key] as number), y: y(value(data.areas[fi], c) as number) }
-    specs.push(...followSpecs(c, p, r, fx(data.areas[fi]), "above"))
+  if (fi >= 0 && c.follow !== low && c.follow !== high && data.areas[fi].f[f.key] !== null && data.areas[fi].decile !== null) {
+    specs.push(...followSpecs(c, placeAt(fi), r, fx(data.areas[fi]), "above", at(fi, data.areas[fi].decile as number)))
   }
   return specs
 }
@@ -1056,7 +1392,7 @@ function pairWhy(c: Ctx): Spec[] {
   rows.forEach((row, k) => {
     // Phones: label, then the track with values below it; England's tick carries no text.
     const top = box.y + rowH * k + (c.narrow ? 2 : 14)
-    const trackY = top + (c.narrow ? 24 : 46)
+    const trackY = top + (c.narrow ? 24 : 54)
     const max = Math.max(row.low ?? 0, row.high ?? 0, row.england ?? 0) * 1.12
     const x = scaleLinear().domain([0, max]).range([left, right])
     const delay = k * 160
@@ -1087,7 +1423,7 @@ function pairWhy(c: Ctx): Spec[] {
           dur: 1200,
           layer: 5,
         }),
-        txt(`pw:${row.key}:${d.side}:v`, x(d.v), trackY + (c.narrow ? 17 : -20), `${d.stand ? `${short(d.stand.name, c.narrow)} ` : ""}${years(d.v, digits)}${row.unit}`, {
+        txt(`pw:${row.key}:${d.side}:v`, x(d.v), trackY + (c.narrow ? 17 : -18), `${d.stand ? `${short(d.stand.name, c.narrow)} ` : ""}${years(d.v, digits)}${row.unit}`, {
           align: "center",
           size: c.narrow ? 11.5 : 12.5,
           weight: 700,
@@ -1129,7 +1465,7 @@ function pairWhy(c: Ctx): Spec[] {
 
 // ——— The film ——————————————————————————————————————————————————
 
-export const CHAPTERS = ["The gap", "The stall", "The split", "Healthy years", "Circumstances", "Two places", "Your place"]
+export const CHAPTERS = ["The gap", "The stall", "Among peers", "The split", "Healthy years", "Circumstances", "Two places", "Your place"]
 
 export const SCENES: SceneDef[] = [
   { id: "open", chapter: 0, build: open, aria: (c) => `Two lifelines: ${pairOf(c).high.name} and ${pairOf(c).low.name}, ten years apart` },
@@ -1137,17 +1473,20 @@ export const SCENES: SceneDef[] = [
   { id: "map", chapter: 0, build: (c) => map(c, "gap"), aria: () => "Hex map of UK local authorities coloured by gap to the UK average" },
   { id: "ends", chapter: 0, build: (c) => map(c, "ends"), aria: () => "Hex map with the ten highest and ten lowest places ringed" },
   { id: "rewind", chapter: 1, time: { from: 0, to: 0, ms: 0 }, build: (c) => stallChart(c, "rewind"), aria: () => "Every place in 2001–03, on a timeline" },
-  { id: "gains", chapter: 1, time: { from: 0, to: 10, ms: 4200, delay: 400 }, build: (c) => stallChart(c, "gains"), aria: () => "Life expectancy rising from 2001–03 to 2011–13" },
-  { id: "flat", chapter: 1, time: { from: 10, to: 16, ms: 3000, delay: 300 }, build: (c) => stallChart(c, "flat"), aria: () => "Life expectancy flattening from 2011–13 to 2017–19" },
-  { id: "covid", chapter: 1, time: { from: 16, to: LAST, ms: 3000, delay: 300 }, build: (c) => stallChart(c, "covid"), aria: () => "COVID-19 and the shortfall against the earlier trend" },
-  { id: "tenths", chapter: 2, build: (c) => tenths(c, "level"), aria: () => "English local authorities in ten deprivation groups" },
-  { id: "moved", chapter: 2, build: (c) => tenths(c, "change"), aria: () => "Change in life expectancy since 2011–13 by deprivation group" },
-  { id: "widening", chapter: 2, time: { from: 0, to: LAST, ms: 6500, delay: 1300 }, build: widening, aria: () => "Mean life expectancy of each deprivation tenth over time" },
-  { id: "avoidable", chapter: 2, build: avoidable, aria: () => "Avoidable deaths under 75 by deprivation tenth, one dot per five deaths per 100,000" },
-  { id: "healthy", chapter: 3, build: healthy, aria: () => "Years in good health and not in good health by deprivation tenth" },
-  { id: "poverty", chapter: 4, build: (c) => scatter({ ...c, factor: 0 }), aria: () => "Child poverty against life expectancy, English local authorities" },
-  { id: "factors", chapter: 4, factors: true, build: scatter, aria: (c) => `${c.data.factors[c.factor]?.label ?? ""} against life expectancy` },
-  { id: "pair", chapter: 5, time: { from: 0, to: LAST, ms: 5500, delay: 1100 }, build: (c) => stallChart(c, "pair"), aria: (c) => `${pairOf(c).low.name} and ${pairOf(c).high.name} over time` },
-  { id: "why", chapter: 5, build: pairWhy, aria: (c) => `${pairOf(c).low.name} and ${pairOf(c).high.name} compared` },
-  { id: "close", chapter: 6, build: (c) => map(c, "change"), aria: () => "Hex map coloured by change in life expectancy since 2011–13" },
+  { id: "gains", chapter: 1, time: { from: 0, to: "stall", ms: 4200, delay: 400 }, build: (c) => stallChart(c, "gains"), aria: () => "Life expectancy rising from 2001–03 to 2011–13" },
+  { id: "flat", chapter: 1, time: { from: "stall", to: "precovid", ms: 3000, delay: 300 }, build: (c) => stallChart(c, "flat"), aria: () => "Life expectancy flattening from 2011–13 to 2017–19" },
+  { id: "covid", chapter: 1, time: { from: "precovid", to: "now", ms: 3000, delay: 300 }, build: (c) => stallChart(c, "covid"), aria: () => "COVID-19 and the shortfall against the earlier trend" },
+  { id: "peers", chapter: 2, time: { from: 0, to: "now", ms: 6000, delay: 1300, axis: "years" }, build: peers, aria: () => "UK life expectancy among OECD countries, 2001 onwards" },
+  { id: "rank", chapter: 2, time: { from: "now", to: "now", ms: 0, axis: "years" }, build: rankChart, aria: () => "Rank of each OECD country by life expectancy, 2001 onwards" },
+  { id: "pace", chapter: 2, build: pace, aria: () => "Pace of life expectancy gains before and after 2011 in OECD countries" },
+  { id: "tenths", chapter: 3, build: (c) => tenths(c, "level"), aria: () => "English local authorities in ten deprivation groups" },
+  { id: "moved", chapter: 3, build: (c) => tenths(c, "change"), aria: () => "Change in life expectancy since 2011–13 by deprivation group" },
+  { id: "widening", chapter: 3, time: { from: 0, to: "now", ms: 6500, delay: 1300 }, build: widening, aria: () => "Mean life expectancy of each deprivation tenth over time" },
+  { id: "avoidable", chapter: 3, time: { from: 0, to: 1, ms: 1800, delay: 2000, axis: "avoidable" }, build: avoidable, aria: () => "Avoidable deaths under 75 by deprivation tenth, then and now" },
+  { id: "healthy", chapter: 4, build: healthy, aria: () => "Years in good health and not in good health by deprivation tenth" },
+  { id: "poverty", chapter: 5, build: (c) => scatter({ ...c, factor: 0 }), aria: () => "Child poverty against life expectancy, English local authorities" },
+  { id: "factors", chapter: 5, factors: true, build: scatter, aria: (c) => `${c.data.factors[c.factor]?.label ?? ""} against life expectancy` },
+  { id: "pair", chapter: 6, time: { from: 0, to: "now", ms: 5500, delay: 1100 }, build: (c) => stallChart(c, "pair"), aria: (c) => `${pairOf(c).low.name} and ${pairOf(c).high.name} over time` },
+  { id: "why", chapter: 6, build: pairWhy, aria: (c) => `${pairOf(c).low.name} and ${pairOf(c).high.name} compared` },
+  { id: "close", chapter: 7, build: (c) => map(c, "change"), aria: () => "Hex map coloured by change in life expectancy since 2011–13" },
 ]

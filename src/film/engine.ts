@@ -1,4 +1,4 @@
-import { rgb } from "d3-color"
+import { lab } from "d3-color"
 import { fonts } from "@/film/measure"
 
 /**
@@ -49,6 +49,8 @@ export type MarkSpec = Common & {
   arc?: number
   /** Index reported on hover. */
   hit?: number
+  /** Sends out a slow ripple, to find a marked place. */
+  pulse?: boolean
 }
 
 export type TextSpec = Common & {
@@ -92,6 +94,8 @@ export type PathSpec = Common & {
   width?: number
   dash?: number[]
   draw?: number
+  /** Close and fill the shape in `color` instead of stroking it. */
+  area?: boolean
 }
 
 export type Spec = MarkSpec | TextSpec | LineSpec | PathSpec
@@ -109,16 +113,28 @@ const EASE: Record<EaseName, (t: number) => number> = {
   linear: (t) => t,
 }
 
+// Colours tween in CIELAB, so a teal fading to purple stays clean instead of passing through grey.
 const colourCache = new Map<string, [number, number, number]>()
-function channels(c: string | undefined, fallback: [number, number, number] = [17, 19, 21]): [number, number, number] {
+function channels(c: string | undefined, fallback: [number, number, number] = [7.1, -0.3, -1.4]): [number, number, number] {
   if (!c) return fallback
   let v = colourCache.get(c)
   if (!v) {
-    const o = rgb(c)
-    v = [o.r, o.g, o.b]
+    const o = lab(c)
+    v = [o.l, o.a, o.b]
     colourCache.set(c, v)
   }
   return v
+}
+
+/** CIELAB (D50, as d3-color) to a CSS rgb() string. */
+function css(v: Float64Array, i: number) {
+  const f = (t: number) => (t > 6 / 29 ? t * t * t : 3 * (6 / 29) ** 2 * (t - 4 / 29))
+  const g = (x: number) => Math.max(0, Math.min(255, Math.round(255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055))))
+  const y0 = (v[i] + 16) / 116
+  const x = 0.96422 * f(y0 + v[i + 1] / 500)
+  const y = f(y0)
+  const z = 0.82521 * f(y0 - v[i + 2] / 200)
+  return `rgb(${g(3.1338561 * x - 1.6168667 * y - 0.4906146 * z)},${g(-0.9787684 * x + 1.9161415 * y + 0.033454 * z)},${g(0.0719453 * x - 0.2289914 * y + 1.4052427 * z)})`
 }
 
 /** Stable pseudo-random in [-1, 1] from an id. */
@@ -147,10 +163,12 @@ type Node = {
   done: boolean
 }
 
-function state(s: Spec): Float64Array {
+const SIZE: Record<Spec["kind"], number> = { mark: M.n, text: T.n, line: L.n, path: P.n }
+
+/** Fills a state vector from a spec; `v` must be the spec kind's size. */
+function write(s: Spec, v: Float64Array): Float64Array {
   switch (s.kind) {
     case "mark": {
-      const v = new Float64Array(M.n)
       const h = s.h ?? s.w
       v[M.x] = s.x
       v[M.y] = s.y
@@ -160,11 +178,10 @@ function state(s: Spec): Float64Array {
       v[M.a] = s.alpha ?? 1
       v[M.sw] = s.stroke ? (s.strokeW ?? 1) : 0
       v.set(channels(s.fill === "none" ? s.stroke : s.fill), M.fill)
-      v.set(channels(s.stroke, channels(s.fill)), M.stroke)
+      v.set(channels(s.stroke, channels(s.fill === "none" ? undefined : s.fill)), M.stroke)
       return v
     }
-    case "text": {
-      const v = new Float64Array(T.n)
+    case "text":
       v[T.x] = s.x
       v[T.y] = s.y
       v[T.size] = s.size ?? 12
@@ -172,9 +189,7 @@ function state(s: Spec): Float64Array {
       v[T.v] = s.value ?? 0
       v.set(channels(s.color), T.col)
       return v
-    }
-    case "line": {
-      const v = new Float64Array(L.n)
+    case "line":
       v[L.x1] = s.x1
       v[L.y1] = s.y1
       v[L.x2] = s.x2
@@ -184,17 +199,16 @@ function state(s: Spec): Float64Array {
       v[L.d] = s.draw ?? 1
       v.set(channels(s.color), L.col)
       return v
-    }
-    case "path": {
-      const v = new Float64Array(P.n)
+    case "path":
       v[P.w] = s.width ?? 1
       v[P.a] = s.alpha ?? 1
       v[P.d] = s.draw ?? 1
       v.set(channels(s.color), P.col)
       return v
-    }
   }
 }
+
+const state = (s: Spec) => write(s, new Float64Array(SIZE[s.kind]))
 
 const alphaIndex = (kind: Spec["kind"]) => (kind === "mark" ? M.a : kind === "text" ? T.a : kind === "line" ? L.a : P.a)
 
@@ -224,11 +238,16 @@ export class Engine {
   paper = "#f4f4f0"
   /** Multiplies every duration; 0 under reduced motion. */
   speed = 1
+  /** True while a pulsing mark is on screen, so the host keeps drawing. */
+  pulsing = false
+  /** Hit index of the hovered mark, ringed when drawn. */
+  hover: number | null = null
 
   private timing(n: Node, s: Spec, now: number) {
+    const safe = (v: number | undefined, d: number) => (v !== undefined && Number.isFinite(v) ? v : d)
     n.t0 = now
-    n.delay = (s.delay ?? 0) * this.speed
-    n.dur = Math.max(1, (s.dur ?? 1000) * this.speed)
+    n.delay = safe(s.delay, 0) * this.speed
+    n.dur = Math.max(1, safe(s.dur, 1000) * this.speed)
     n.ease = EASE[s.ease ?? "inOut"]
     n.done = false
   }
@@ -362,7 +381,7 @@ export class Engine {
       seen.add(s.id)
       const n = this.nodes.get(s.id)
       if (!n) {
-        this.create({ ...s, delay: 0, dur: Math.min(s.dur ?? 500, 500) }, now)
+        this.create(s, now)
         continue
       }
       if (n.leaving) {
@@ -370,16 +389,18 @@ export class Engine {
         n.from = n.cur.slice()
         n.to = state(s)
         this.timing(n, { ...s, delay: 0, dur: 400 }, now)
-      } else n.to = state(s)
-      if (s.kind === "path") {
+      } else write(s, n.to)
+      // Scenes pass cached point arrays, so an unchanged reference means unchanged points.
+      const newPts = s.kind === "path" && (n.spec.kind !== "path" || n.spec.pts !== s.pts)
+      if (newPts) {
         const to = Float64Array.from(s.pts)
         if (!n.fromPts || n.fromPts.length !== to.length) n.fromPts = resample(n.curPts ?? to, to.length / 2)
         n.toPts = to
       }
       n.spec = s
       if (n.done) {
-        n.cur = n.to.slice()
-        if (n.toPts) n.curPts = n.toPts.slice()
+        n.cur.set(n.to)
+        if (newPts && n.toPts) n.curPts = n.toPts.slice()
       }
     }
     for (const n of this.nodes.values()) if (!seen.has(n.id) && !n.leaving) this.leave(n, now)
@@ -462,14 +483,28 @@ export class Engine {
     return null
   }
 
-  draw(ctx: CanvasRenderingContext2D, width: number, height: number, dpr: number) {
+  /** Draws every node. Layers below 10 are clipped to `clip`, so stage marks stay clear of the caption; labels above may overhang. */
+  draw(ctx: CanvasRenderingContext2D, width: number, height: number, dpr: number, clip?: { x: number; y: number; w: number; h: number }) {
     if (this.dirtyOrder) {
       this.sorted = [...this.nodes.values()].sort((a, b) => (a.spec.layer ?? 0) - (b.spec.layer ?? 0) || a.seq - b.seq)
       this.dirtyOrder = false
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, width, height)
+    this.pulsing = false
+    let clipped = false
+    if (clip) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(clip.x, clip.y, clip.w, clip.h)
+      ctx.clip()
+      clipped = true
+    }
     for (const n of this.sorted) {
+      if (clipped && (n.spec.layer ?? 0) >= 10) {
+        ctx.restore()
+        clipped = false
+      }
       switch (n.spec.kind) {
         case "mark":
           this.drawMark(ctx, n, n.spec)
@@ -485,6 +520,7 @@ export class Engine {
           break
       }
     }
+    if (clipped) ctx.restore()
     ctx.globalAlpha = 1
   }
 
@@ -504,7 +540,7 @@ export class Engine {
     ctx.globalAlpha = a
     const filled = s.fill !== "none"
     if (filled) {
-      ctx.fillStyle = `rgb(${c[M.fill]},${c[M.fill + 1]},${c[M.fill + 2]})`
+      ctx.fillStyle = css(c, M.fill)
       ctx.fill()
       if (s.hatch && this.hatch) {
         ctx.fillStyle = this.hatch
@@ -513,8 +549,27 @@ export class Engine {
     }
     if (c[M.sw] > 0.02) {
       ctx.lineWidth = c[M.sw]
-      ctx.strokeStyle = `rgb(${c[M.stroke]},${c[M.stroke + 1]},${c[M.stroke + 2]})`
+      ctx.strokeStyle = css(c, M.stroke)
       ctx.stroke()
+    }
+    if (s.hit !== undefined && s.hit === this.hover) {
+      ctx.beginPath()
+      ctx.arc(c[M.x], c[M.y], Math.max(w, h) / 2 + 3.5, 0, Math.PI * 2)
+      ctx.globalAlpha = 1
+      ctx.lineWidth = 1.75
+      ctx.strokeStyle = "#111315"
+      ctx.stroke()
+    }
+    if (s.pulse && this.speed > 0) {
+      // One ripple every 1.8 s, growing 14 px and fading out.
+      const k = (performance.now() % 1800) / 1800
+      ctx.beginPath()
+      ctx.arc(c[M.x], c[M.y], w / 2 + 14 * (1 - (1 - k) ** 2), 0, Math.PI * 2)
+      ctx.globalAlpha = a * 0.55 * (1 - k)
+      ctx.lineWidth = 1.5
+      ctx.strokeStyle = css(c, M.stroke)
+      ctx.stroke()
+      this.pulsing = true
     }
   }
 
@@ -536,7 +591,7 @@ export class Engine {
       ctx.strokeStyle = this.paper
       ctx.strokeText(str, c[T.x], c[T.y])
     }
-    ctx.fillStyle = `rgb(${c[T.col]},${c[T.col + 1]},${c[T.col + 2]})`
+    ctx.fillStyle = css(c, T.col)
     ctx.fillText(str, c[T.x], c[T.y])
   }
 
@@ -548,7 +603,7 @@ export class Engine {
     ctx.globalAlpha = a
     ctx.lineWidth = c[L.w]
     ctx.lineCap = "round"
-    ctx.strokeStyle = `rgb(${c[L.col]},${c[L.col + 1]},${c[L.col + 2]})`
+    ctx.strokeStyle = css(c, L.col)
     ctx.setLineDash(s.dash ?? [])
     ctx.beginPath()
     ctx.moveTo(c[L.x1], c[L.y1])
@@ -563,12 +618,29 @@ export class Engine {
     const a = c[P.a]
     if (!pts || a < 0.003 || c[P.d] < 0.001) return
     const count = pts.length / 2
+    if (s.area) {
+      ctx.beginPath()
+      let started = false
+      for (let i = 0; i < count; i += 1) {
+        const x = pts[i * 2]
+        const y = pts[i * 2 + 1]
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+        if (started) ctx.lineTo(x, y)
+        else ctx.moveTo(x, y)
+        started = true
+      }
+      ctx.closePath()
+      ctx.globalAlpha = a
+      ctx.fillStyle = css(c, P.col)
+      ctx.fill()
+      return
+    }
     const end = c[P.d] * (count - 1)
     ctx.globalAlpha = a
     ctx.lineWidth = c[P.w]
     ctx.lineCap = "round"
     ctx.lineJoin = "round"
-    ctx.strokeStyle = `rgb(${c[P.col]},${c[P.col + 1]},${c[P.col + 2]})`
+    ctx.strokeStyle = css(c, P.col)
     ctx.setLineDash(s.dash ?? [])
     ctx.beginPath()
     let pen = false
