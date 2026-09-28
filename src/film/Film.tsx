@@ -265,8 +265,12 @@ function Player({ data, W, H }: { data: FilmData; W: number; H: number }) {
 
   const caption = (
     <div ref={capRef} tabIndex={-1} className="outline-none">
-      <Crossfade id={capKey}>
-        <CaptionBody scene={scene} copy={copy} compact={compact} />
+      {/* Title and text crossfade separately, so a title that doesn't change doesn't move. */}
+      <Crossfade id={`${scene.id}:${copy.title}`} scene={scene.id}>
+        <CaptionHead scene={scene} copy={copy} compact={compact} />
+      </Crossfade>
+      <Crossfade id={capKey} scene={scene.id}>
+        <CaptionText scene={scene} copy={copy} compact={compact} />
       </Crossfade>
       {extra ? (
         <div key={scene.id} className={cn("cap-extra", compact ? "mt-4" : "mt-8")}>
@@ -439,61 +443,72 @@ function Player({ data, W, H }: { data: FilmData; W: number; H: number }) {
   )
 }
 
-/** Keeps the outgoing caption long enough to fade while the next one rises. */
-function Crossfade({ id, children }: { id: string; children: ReactNode }) {
-  const [shown, setShown] = useState<{ id: string; node: ReactNode }>({ id, node: children })
-  const [gone, setGone] = useState<{ id: string; node: ReactNode } | null>(null)
+type Shown = { id: string; scene: string; node: ReactNode }
+
+/**
+ * Keeps the outgoing caption long enough to fade while the next one rises. Within a scene (a new sex or
+ * circumstance) the change is a quick fade in place rather than the full entrance.
+ */
+function Crossfade({ id, scene, children }: { id: string; scene: string; children: ReactNode }) {
+  const [shown, setShown] = useState<Shown>({ id, scene, node: children })
+  const [gone, setGone] = useState<(Shown & { soft: boolean }) | null>(null)
   if (shown.id !== id) {
-    setGone(shown)
-    setShown({ id, node: children })
+    setGone({ ...shown, soft: shown.scene === scene })
+    setShown({ id, scene, node: children })
   }
   useEffect(() => {
     if (!gone) return
     const t = window.setTimeout(() => setGone(null), 420)
     return () => window.clearTimeout(t)
   }, [gone])
+  const soft = gone?.soft ?? false
   return (
     <div className="grid">
       {gone ? (
-        <div key={gone.id} aria-hidden inert className="cap-out pointer-events-none [grid-area:1/1]">
+        <div key={gone.id} aria-hidden inert className={cn("pointer-events-none [grid-area:1/1]", soft ? "cap-soft-out" : "cap-out")}>
           {gone.node}
         </div>
       ) : null}
-      <div key={id} className={cn("[grid-area:1/1]", gone ? "cap-in cap-wait" : "cap-in")}>
+      <div key={id} className={cn("[grid-area:1/1]", soft ? "cap-soft" : gone ? "cap-in cap-wait" : "cap-in")}>
         {children}
       </div>
     </div>
   )
 }
 
-function CaptionBody({ scene, copy, compact }: { scene: SceneDef; copy: ReturnType<typeof copyFor>; compact: boolean }) {
-  const open = scene.id === "open"
+function CaptionHead({ scene, copy, compact }: { scene: SceneDef; copy: ReturnType<typeof copyFor>; compact: boolean }) {
   const head = copy.title.split(" ")
+  if (scene.id === "open")
+    return (
+      <div className="cap">
+        <p className="kicker">Life expectancy across the UK · 2001–2024</p>
+        <h1 className={cn("display text-ink", compact ? "mt-2 text-[2.6rem] leading-[0.92]" : "mt-6 text-[clamp(3.4rem,5.2vw,5.6rem)] leading-[0.9]")}>
+          <span className="block whitespace-nowrap">{head.slice(0, -1).join(" ")}</span>
+          <span className="mt-[0.06em] flex items-center gap-[0.18em]">
+            <Ruler />
+            <span>{head.at(-1)}</span>
+          </span>
+        </h1>
+      </div>
+    )
   return (
     <div className="cap">
-      {open ? (
-        <>
-          <p className="kicker">Life expectancy across the UK · 2001–2024</p>
-          <h1 className={cn("display text-ink", compact ? "mt-2 text-[2.6rem] leading-[0.92]" : "mt-6 text-[clamp(3.4rem,5.2vw,5.6rem)] leading-[0.9]")}>
-            <span className="block whitespace-nowrap">{head.slice(0, -1).join(" ")}</span>
-            <span className="mt-[0.06em] flex items-center gap-[0.18em]">
-              <Ruler />
-              <span>{head.at(-1)}</span>
-            </span>
-          </h1>
-        </>
-      ) : (
-        <>
-          <p className="kicker">
-            <span className="text-ink">{ROMAN[scene.chapter]}</span>
-            <span className="mx-2 text-ink-4">·</span>
-            {CHAPTERS[scene.chapter]}
-          </p>
-          <h2 className={cn("display text-ink", compact ? "mt-1.5 text-[1.7rem] leading-[1.05]" : "mt-4 text-[clamp(2.1rem,2.9vw,3.1rem)] leading-[1.02]")}>
-            {copy.title}
-          </h2>
-        </>
-      )}
+      <p className="kicker">
+        <span className="text-ink">{ROMAN[scene.chapter]}</span>
+        <span className="mx-2 text-ink-4">·</span>
+        {CHAPTERS[scene.chapter]}
+      </p>
+      <h2 className={cn("display text-ink", compact ? "mt-1.5 text-[1.7rem] leading-[1.05]" : "mt-4 text-[clamp(2.1rem,2.9vw,3.1rem)] leading-[1.02]")}>
+        {copy.title}
+      </h2>
+    </div>
+  )
+}
+
+function CaptionText({ scene, copy, compact }: { scene: SceneDef; copy: ReturnType<typeof copyFor>; compact: boolean }) {
+  const open = scene.id === "open"
+  return (
+    <div className="cap cap-body">
       <p className={cn("text-ink-2", compact ? "mt-2.5 text-[15px] leading-[1.55]" : open ? "mt-7 text-[17.5px] leading-[1.6]" : "mt-5 text-[17px] leading-[1.6]")}>
         {copy.body}
       </p>

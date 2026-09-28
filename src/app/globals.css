@@ -62,6 +62,25 @@
 .cap-wait .cap > :nth-child(4) { --wait: 460ms; }
 .cap-wait .cap > :nth-child(5) { --wait: 540ms; }
 .cap-wait .cap > :nth-child(6) { --wait: 620ms; }
+/* The text block follows the title in the same stagger. */
+.cap-in .cap-body > :nth-child(1) { animation-delay: 160ms; }
+.cap-in .cap-body > :nth-child(2) { animation-delay: 240ms; }
+.cap-in .cap-body > :nth-child(3) { animation-delay: 320ms; }
+.cap-wait .cap-body > :nth-child(1) { --wait: 380ms; }
+.cap-wait .cap-body > :nth-child(2) { --wait: 460ms; }
+.cap-wait .cap-body > :nth-child(3) { --wait: 540ms; }
+/* Within a scene: a quick fade in place. */
+.cap-soft .cap > * {
+  animation: fade 360ms ease-out 120ms both;
+}
+.cap-soft-out {
+  animation: cap-fade-out 220ms ease-in both;
+}
+@keyframes cap-fade-out {
+  to {
+    opacity: 0;
+  }
+}
 .cap-extra {
   animation: cap-rise 900ms cubic-bezier(0.2, 0.7, 0.2, 1) 380ms both;
 }
