@@ -31,6 +31,8 @@ type Common = {
   enter?: Enter
   /** How the node leaves when a later scene drops it. */
   exit?: "fade" | "shrink"
+  /** Wait before leaving, ms, so a node can linger under whatever replaces it. */
+  exitDelay?: number
 }
 
 export type MarkSpec = Common & {
@@ -340,7 +342,7 @@ export class Engine {
       n.toPts = n.curPts.slice()
     }
     n.t0 = now
-    n.delay = 0
+    n.delay = (n.spec.exitDelay ?? 0) * this.speed
     n.dur = Math.max(1, 450 * this.speed)
     n.ease = EASE.out
     n.arc = 0

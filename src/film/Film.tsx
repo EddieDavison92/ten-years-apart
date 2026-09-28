@@ -62,7 +62,7 @@ function layoutFor(W: number, H: number, opening = false): Layout {
     const header = 52
     const rail = 56
     const x = side + capW + 28
-    const box = { x, y: header + 32, w: W - x - side, h: Math.max(120, H - header - 32 - rail - 44) }
+    const box = { x, y: header + 22, w: W - x - side, h: Math.max(120, H - header - 22 - rail - 34) }
     return { mode: "side", narrow: box.w < 560 || box.h < 320, side, header, rail, capW, capH: 0, box, clip: { x: x - 40, y: header, w: W - x + 40, h: H - header - rail } }
   }
   const header = 56
@@ -325,7 +325,7 @@ function Player({ data, W, H }: { data: FilmData; W: number; H: number }) {
           canReplay={(scene.time?.ms ?? 0) > 0}
           left={t0}
           width={t1 - t0}
-          top={lay.box.y + lay.box.h + (lay.narrow ? 16 : 24)}
+          top={lay.box.y + lay.box.h + (lay.mode === "stacked" ? 26 : lay.narrow ? 12 : 24)}
           onScrub={(t) => {
             setPlaying(false)
             stage.current?.scrub(t)
@@ -765,10 +765,11 @@ function Tooltip({
   const stall = data.index.stall
   const ch = (s: Sex) => (area[s][now] !== null && area[s][stall] !== null ? (area[s][now] as number) - (area[s][stall] as number) : null)
   const f = scene.id === "poverty" ? data.factors[0] : scene.factors ? data.factors[factor] : null
-  // Sit clear of the dot and its neighbours: beside it, flipped at the edges.
+  // Sit clear of the dot and its neighbours: beside it, flipped at the edges; on phones, above or below it.
   const gap = hover.r + 18
-  const left = hover.x + gap + 220 > W ? hover.x - gap - 220 : hover.x + gap
-  const top = clamp(hover.y - 50, 8, H - 170)
+  const phone = W < 640
+  const left = phone ? clamp(hover.x - 110, 8, W - 228) : clamp(hover.x + gap + 220 > W ? hover.x - gap - 220 : hover.x + gap, 8, W - 228)
+  const top = phone ? (hover.y > H / 2 ? hover.y - gap - 150 : hover.y + gap) : clamp(hover.y - 50, 8, H - 170)
   return (
     <div
       className="pointer-events-none absolute z-40 w-[220px] rounded-2xl border border-ink/10 bg-white/95 px-4 py-3 shadow-[0_18px_40px_-20px_rgba(17,19,21,0.5)] backdrop-blur [animation:menu_140ms_ease-out]"
@@ -817,7 +818,7 @@ function CountryTip({ k, hover, data, sex, W, H }: { k: number; hover: Hover; da
   const i11 = I.years.indexOf(2011)
   const since = (i: number) => (c[sex][i] !== null && c[sex][i11] !== null ? (c[sex][i] as number) - (c[sex][i11] as number) : null)
   const gap = hover.r + 18
-  const left = hover.x + gap + 220 > W ? hover.x - gap - 220 : hover.x + gap
+  const left = clamp(hover.x + gap + 220 > W ? hover.x - gap - 220 : hover.x + gap, 8, W - 228)
   const top = clamp(hover.y - 50, 8, H - 170)
   return (
     <div

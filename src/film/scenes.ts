@@ -209,16 +209,17 @@ function followSpecs(
 }
 
 /** Colour ramp legend for gap or change. */
-function legend(c: Ctx, kind: "gap" | "change", x: number, y: number, heading?: string): Spec[] {
+function legend(c: Ctx, kind: "gap" | "change", x: number, y: number, heading?: string, scope = "map"): Spec[] {
   const w = c.narrow ? 140 : 180
   const sw = w / DIVERGING.length
   const span = kind === "gap" ? GAP_SPAN : CHANGE_SPAN
   const title = heading ?? (kind === "gap" ? `Gap to UK figure, ${years(ukNow(c))}` : "Change since 2011–13")
   return [
-    txt(`leg:title:${title}`, x, y, title, { size: 10, caps: true, weight: 600, color: INK_3 }),
-    ...DIVERGING.map((col, i) => mark(`leg:${i}`, x + sw * (i + 0.5), y + 17, sw - 1.5, col, { h: 7, rad: 1.5, layer: 8, arc: 0, delay: i * 30 })),
-    txt(`leg:lo:${kind}`, x, y + 32, `${kind === "gap" ? "Shorter" : "Fell"} −${span}`, { size: 10.5, color: INK_2 }),
-    txt(`leg:hi:${kind}`, x + w, y + 32, `+${span} ${kind === "gap" ? "Longer" : "Rose"}`, { size: 10.5, color: INK_2, align: "right" }),
+    // Ids carry a scope, so the map's legend and the timeline's crossfade instead of flying across the chart.
+    txt(`leg:${scope}:title:${title}`, x, y, title, { size: 10, caps: true, weight: 600, color: INK_3 }),
+    ...DIVERGING.map((col, i) => mark(`leg:${scope}:${i}`, x + sw * (i + 0.5), y + 17, sw - 1.5, col, { h: 7, rad: 1.5, layer: 8, arc: 0, enterDelay: 400 + i * 30 })),
+    txt(`leg:${scope}:lo:${kind}`, x, y + 32, `${kind === "gap" ? "Shorter" : "Fell"} −${span}`, { size: 10.5, color: INK_2 }),
+    txt(`leg:${scope}:hi:${kind}`, x + w, y + 32, `+${span} ${kind === "gap" ? "Longer" : "Rose"}`, { size: 10.5, color: INK_2, align: "right" }),
   ]
 }
 
@@ -270,7 +271,7 @@ function open(c: Ctx): Spec[] {
       // Line tips ride the lines as they draw; the swarm's dots split out of them.
       mark(`tip:${r.a.code}`, x(r.v), r.y, c.narrow ? 14 : 18, r.colour, {
         hit: i,
-        enter: { x: x(0), w: c.narrow ? 14 : 18, alpha: 1 },
+        enter: { x: x(0), w: c.narrow ? 14 : 18, alpha: 0 },
         enterDelay: r.delay,
         dur: DRAW,
         arc: 0,
@@ -285,7 +286,7 @@ function open(c: Ctx): Spec[] {
         size: c.narrow ? 20 : 27,
         font: "display",
         color: INK,
-        enter: { x: x(0) + (c.narrow ? 13 : 17), value: 0, alpha: 1 },
+        enter: { x: x(0) + (c.narrow ? 13 : 17), value: 0, alpha: 0 },
         enterDelay: r.delay,
         dur: DRAW,
       })
@@ -380,10 +381,13 @@ function swarm(c: Ctx): Spec[] {
   specs.push(
     line("uk:rule", x(uk), topY - r - 14, x(uk), bottomY + r + 10, { dash: [2, 3], alpha: 0.8, layer: 6 }),
     txt("uk:lab", x(uk), topY - r - 24, `UK ${years(uk)}`, { align: "center", size: 11.5, weight: 600, color: INK, halo: true }),
-    line("gap:br", lp.x, brY, hp.x, brY, { width: 1.25 }),
-    line("gap:brL", lp.x, brY - 6, lp.x, brY + 6, { width: 1.25 }),
-    line("gap:brR", hp.x, brY - 6, hp.x, brY + 6, { width: 1.25 }),
+    // The bracket moves on the end dots' timing, so its ends stay over them.
+    line("gap:br", lp.x, brY, hp.x, brY, { width: 1.25, delay: 250, dur: 1100 }),
+    line("gap:brL", lp.x, brY - 6, lp.x, brY + 6, { width: 1.25, delay: 250, dur: 1100 }),
+    line("gap:brR", hp.x, brY - 6, hp.x, brY + 6, { width: 1.25, delay: 250, dur: 1100 }),
     txt("gap:label", (lp.x + hp.x) / 2, brY - 22, "", {
+      delay: 250,
+      dur: 1100,
       value: (value(data.areas[areaIndex(c, high)], c) as number) - (value(data.areas[areaIndex(c, low)], c) as number),
       format: (v) => `${years(v)} years`,
       size: c.narrow ? 18 : 22,
@@ -411,7 +415,9 @@ function swarm(c: Ctx): Spec[] {
 
 function mapPositions(c: Ctx) {
   const inset = c.narrow ? 4 : 12
-  const box = { x: c.box.x + inset, y: c.box.y + inset, w: c.box.w - inset * 2, h: c.box.h - inset * 2 }
+  // Phones keep a strip above the map for the legend, which would otherwise sit on Scotland.
+  const top = c.narrow ? 52 : inset
+  const box = { x: c.box.x + inset, y: c.box.y + top, w: c.box.w - inset * 2, h: c.box.h - top - inset }
   return cached(`hex:${bk(box)}`, () => hexLayout(c.data.areas, box))
 }
 
@@ -424,8 +430,15 @@ function map(c: Ctx, mode: "gap" | "ends" | "change"): Spec[] {
   const ext = data.extremes[c.sex]
   const ringed = new Set(mode === "ends" ? [...ext.topTen, ...ext.bottomTen] : [])
   // North moves first; on the closing scene the map rebuilds from the south.
-  const mapAt = (p: Pt): Timing => ({
-    delay: ((p.y - box.y) / box.h) * 380,
+  const byValue = cached(`rank:${c.sex}`, () => {
+    const order = data.areas.map((a, i) => ({ i, v: value(a, c) ?? Infinity })).sort((a, b) => a.v - b.v)
+    const out = new Array<number>(order.length)
+    order.forEach((o, k) => (out[o.i] = k))
+    return out
+  })
+  // Leaving the swarm, dots set off shortest-lived first, so the flight paints the colour scale; later map scenes move north first.
+  const mapAt = (p: Pt, i = -1): Timing => ({
+    delay: mode === "gap" && i >= 0 ? (byValue[i] / data.areas.length) * 500 : ((p.y - box.y) / box.h) * 380,
     enterDelay: 300 + ((box.y + box.h - p.y) / box.h) * 1500 + Math.abs(p.x - (box.x + box.w / 2)) * 0.6,
     dur: 1200,
   })
@@ -442,7 +455,7 @@ function map(c: Ctx, mode: "gap" | "ends" | "change"): Spec[] {
       mark(`a:${a.code}`, p.x, p.y, w, fill, {
         hit: i,
         alpha: dim ? 0.28 : 1,
-        ...mapAt(p),
+        ...mapAt(p, i),
         ...(home ? { enter: { from: home }, enterDelay: 150 } : {}),
         layer: home ? 6 : ringed.has(a.code) ? 4 : 3,
       })
@@ -466,8 +479,14 @@ function map(c: Ctx, mode: "gap" | "ends" | "change"): Spec[] {
     const xs = pts.map((p) => p.x)
     const midY = n.key === "E" ? Math.min(...ys) + (Math.max(...ys) - Math.min(...ys)) * 0.3 : (Math.min(...ys) + Math.max(...ys)) / 2
     const label = c.narrow && n.key === "N" ? "N. Ireland" : n.name
-    const tw = textWidth(label.toUpperCase(), 10, 600) * 1.12
-    const edge = n.side < 0 ? Math.max(tw + 6, Math.min(...xs) - w) : Math.min(c.W - tw - 6, Math.max(...xs) + w)
+    // Northern Ireland's label sits above its hexes, clear of the pills that lead off the west coast.
+    if (n.key === "N") {
+      specs.push(txt(`nation:${n.key}`, (Math.min(...xs) + Math.max(...xs)) / 2, Math.min(...ys) - w * 1.1, label, { align: "center", size: 10, caps: true, weight: 600, color: INK_3, delay: 600, halo: true }))
+      continue
+    }
+    // Caps carry 0.12em tracking, which measureText doesn't see.
+    const tw = textWidth(label.toUpperCase(), 10, 600) + label.length * 1.2
+    const edge = n.side < 0 ? Math.max(tw + 10, Math.min(...xs) - w) : Math.min(c.W - tw - 10, Math.max(...xs) + w)
     specs.push(txt(`nation:${n.key}`, edge, midY, label, { align: n.side < 0 ? "right" : "left", size: 10, caps: true, weight: 600, color: INK_3, delay: 600, halo: true }))
   }
   specs.push(...legend(c, mode === "change" ? "change" : "gap", box.x, box.y + 6))
@@ -579,7 +598,8 @@ function stallChart(c: Ctx, stage: Stage): Spec[] {
   )
   const ukPts = cached(`ukpts:${sex}:${bk(box)}`, () => Float64Array.from(uk.flatMap((v, i) => [x(i), y(v)])))
   const { stall: iStall, precovid: iPre, now: LAST } = data.index
-  const draw = t / LAST
+  // Rewind draws no trails: the column slides back to 2001 before any line is laid.
+  const draw = stage === "rewind" ? 0 : t / LAST
   const hx = x(t)
   const heads: { id: string; y: number; value: number; name: string; colour: string; weight: number }[] = []
   const ukc = ukNow(c)
@@ -710,8 +730,8 @@ function stallChart(c: Ctx, stage: Stage): Spec[] {
     const P = pairOf(c).le
     const gapAt = (i: number) => (at(P.high, i) as number) - (at(P.low, i) as number)
     specs.push(
-      line("pair:br0", x(0) + 10, y(P.high[0] as number) + 8, x(0) + 10, y(P.low[0] as number) - 8, { width: 1.25, enter: "draw", layer: 6 }),
-      txt("pair:br0:lab", x(0) + 18, (y(P.high[0] as number) + y(P.low[0] as number)) / 2, `${years(gapAt(0))} years`, { size: c.narrow ? 13 : 16, font: "display", color: INK, halo: true, layer: 9 }),
+      line("pair:br0", x(0) + 10, y(P.high[0] as number) + 8, x(0) + 10, y(P.low[0] as number) - 8, { width: 1.25, enter: "draw", enterDelay: 900, layer: 6 }),
+      txt("pair:br0:lab", x(0) + 18, (y(P.high[0] as number) + y(P.low[0] as number)) / 2, `${years(gapAt(0))} years`, { size: c.narrow ? 13 : 16, font: "display", color: INK, halo: true, layer: 9, enterDelay: 1000 }),
       // The moving bracket shows once it has pulled clear of the 2001–03 one.
       line("pair:brT", hx + 16, y(at(P.high, t) as number) + 8, hx + 16, y(at(P.low, t) as number) - 8, { width: 1.25, layer: 6, alpha: clamp01(t - 1.5) }),
       txt("pair:brT:lab", hx + 24, (y(at(P.high, t) as number) + y(at(P.low, t) as number)) / 2, "", {
@@ -729,6 +749,7 @@ function stallChart(c: Ctx, stage: Stage): Spec[] {
   for (const h of spread(heads, 17)) {
     specs.push(
       txt(h.id, hx + (stage === "pair" ? 14 : 12), h.y, "", {
+        enterDelay: 900,
         value: h.value,
         format: (v) => `${h.name} ${years(v)}`,
         size: c.narrow ? 11 : 12.5,
@@ -742,12 +763,14 @@ function stallChart(c: Ctx, stage: Stage): Spec[] {
     // Names ride above and below the lines.
     const P = pairOf(c).le
     specs.push(
-      txt(`pairname:${high}`, hx + 14, y(at(P.high, t) as number) - 18, "", { value: at(P.high, t) as number, format: (v) => `${short(pairOf(c).high.name, c.narrow)} ${years(v)}`, size: c.narrow ? 11 : 12.5, weight: 600, color: TEAL, halo: true }),
-      txt(`pairname:${low}`, hx + 14, y(at(P.low, t) as number) + 18, "", { value: at(P.low, t) as number, format: (v) => `${short(pairOf(c).low.name, c.narrow)} ${years(v)}`, size: c.narrow ? 11 : 12.5, weight: 600, color: BRICK, halo: true })
+      txt(`pairname:${high}`, hx + 14, y(at(P.high, t) as number) - 18, "", {
+        enterDelay: 900, value: at(P.high, t) as number, format: (v) => `${short(pairOf(c).high.name, c.narrow)} ${years(v)}`, size: c.narrow ? 11 : 12.5, weight: 600, color: TEAL, halo: true }),
+      txt(`pairname:${low}`, hx + 14, y(at(P.low, t) as number) + 18, "", {
+        enterDelay: 900, value: at(P.low, t) as number, format: (v) => `${short(pairOf(c).low.name, c.narrow)} ${years(v)}`, size: c.narrow ? 11 : 12.5, weight: 600, color: BRICK, halo: true })
     )
   }
   // Lines keep the map's colours: each place's gap to the UK in the latest period.
-  if (stage !== "pair" && !c.narrow) specs.push(...legend(c, "gap", x(LAST) - 180, y(dom[0]) - 44, `Line colour: gap to UK, ${data.periods[LAST]}`))
+  if (stage !== "pair" && !c.narrow) specs.push(...legend(c, "gap", x(LAST) - 180, y(dom[0]) - 44, `Line colour: gap to UK, ${data.periods[LAST]}`, "line"))
   specs.push(ghostYear(c, x(0) + 6))
   return specs
 }
@@ -807,7 +830,7 @@ function peers(c: Ctx): Spec[] {
   }
   const marks = [2001, 2011, 2019, intl.years[n - 1]].filter((yr, i, a) => a.indexOf(yr) === i && (!c.narrow || yr !== 2019))
   for (const yr of marks) specs.push(txt(`yr:${yr}`, x(intl.years.indexOf(yr)), y0 + 20, String(yr), { align: "center" }))
-  specs.push(txt(`yt:peers:${sex}`, x(0) - 12, box.y - 2, `${who(sex)} · life expectancy at birth · UK, OECD average and eight members`, { size: 10, caps: true, weight: 600 }))
+  specs.push(txt(`yt:peers:${sex}`, x(0) - 12, box.y - 2, c.narrow ? `${who(sex)} · life expectancy` : `${who(sex)} · life expectancy at birth · UK, OECD average and eight members`, { size: 10, caps: true, weight: 600 }))
   const i2011 = intl.years.indexOf(2011)
   specs.push(
     line("peers:2011", x(i2011), y(dom[1]), x(i2011), y0, { dash: [2, 4], alpha: 0.5, layer: 1 }),
@@ -822,7 +845,7 @@ function peers(c: Ctx): Spec[] {
     const uk = k.code === "GBR"
     const st = countryStyle(k.code)
     const v = at(k[sex], t)
-    specs.push(path(uk ? "tr:uk" : `c:${k.code}`, pts[i], { color: st.colour, width: st.width, alpha: st.alpha, draw, layer: st.layer }))
+    specs.push(path(`c:${k.code}`, pts[i], { color: st.colour, width: st.width, alpha: st.alpha, draw, layer: st.layer }))
     if (v === null) return
     specs.push(
       mark(uk ? "uk:head" : `ch:${k.code}`, x(t), y(v), st.head, st.colour, {
@@ -836,7 +859,7 @@ function peers(c: Ctx): Spec[] {
       })
     )
     if (uk) labels.push({ id: "head:uk", y: y(v), value: v, name: "UK", colour: INK, weight: 700 })
-    else if (FAMILIAR[k.code] && !c.narrow) labels.push({ id: `head:${k.code}`, y: y(v), value: v, name: k.name, colour: st.colour, weight: 600 })
+    else if (FAMILIAR[k.code] && (!c.narrow || k.code === "JPN" || k.code === "USA")) labels.push({ id: `head:${k.code}`, y: y(v), value: v, name: k.name, colour: st.colour, weight: 600 })
   })
   // The UK's 359 places collapse into one figure: the column of dots folds into the UK's latest point, while the line rewinds to 2001.
   const ukSeries = intl.countries.find((k) => k.code === "GBR")![sex]
@@ -853,7 +876,9 @@ function peers(c: Ctx): Spec[] {
   )
   labels.push({ id: "head:oecd", y: y(av), value: av, name: c.narrow ? "OECD" : "OECD average", colour: INK_3, weight: 600 })
   for (const l of spread(labels, 15, y0 - 6))
-    specs.push(txt(l.id, x(t) + 12, l.y, "", { value: l.value, format: (v) => `${l.name} ${years(v)}`, size: c.narrow ? 11 : 12.5, weight: l.weight, color: l.colour, halo: true }))
+    specs.push(
+      txt(l.id, x(t) + 12, l.y, "", { value: l.value, format: (v) => `${l.name} ${years(v)}`, size: c.narrow ? 11 : 12.5, weight: l.weight, color: l.colour, halo: true, enterDelay: 500 })
+    )
   specs.push(ghostYear(c, x(0) + 6, intl.years.map(String)))
   return specs
 }
@@ -895,7 +920,7 @@ function rankChart(c: Ctx): Spec[] {
     const uk = cn.code === "GBR"
     const st = countryStyle(cn.code)
     const r = at(P.order[i], t)
-    specs.push(path(uk ? "tr:uk" : `c:${cn.code}`, pts[i], { color: st.colour, width: st.width + (uk ? 0.5 : 0), alpha: Math.max(st.alpha, 0.45), draw: 1, layer: st.layer, dur: 1300 }))
+    specs.push(path(`c:${cn.code}`, pts[i], { color: st.colour, width: st.width + (uk ? 0.5 : 0), alpha: Math.max(st.alpha, 0.45), draw: 1, layer: st.layer, dur: 1300 }))
     if (r === null) return
     specs.push(
       mark(uk ? "uk:head" : `ch:${cn.code}`, x(t), y(r), Math.max(st.head, 6), st.colour, {
@@ -989,7 +1014,7 @@ function pinned(c: Ctx): Spec[] {
     const st = countryStyle(k.code)
     const v = at(series.countries[i], t)
     // Lines keep their ids from the previous chart, so each slides vertically into place.
-    specs.push(path(uk ? "tr:uk" : `c:${k.code}`, pts.countries[i], { color: st.colour, width: st.width, alpha: st.alpha, draw: 1, layer: st.layer, dur: 1400, delay: i * 15 }))
+    specs.push(path(`c:${k.code}`, pts.countries[i], { color: st.colour, width: st.width, alpha: st.alpha, draw: 1, layer: st.layer, dur: 1400, delay: i * 15 }))
     if (v === null) return
     specs.push(
       mark(uk ? "uk:head" : `ch:${k.code}`, x(t), y(v), st.head, st.colour, {
@@ -1161,12 +1186,22 @@ function widening(c: Ctx): Spec[] {
       mark(`dec:${d}`, hx, y(at(row, t) as number), edge ? 12 : 8, col, { stroke: PAPER, strokeW: 1.75, layer: 5, enterDelay: 500 + d * 40, dur: 900 })
     )
   })
-  // Places merge into their tenth's average where it ends, in the latest period, while the lines draw from 2001.
+  // Places gather as a faint cloud at the latest period, where their values are; the tenth lines draw towards them
+  // and the cloud fades as they arrive.
   const last = data.index.now
+  const [yb, yt] = y.range()
   data.areas.forEach((a) => {
     if (a.decile === null) return
-    const d = a.decile - 1
-    specs.push(mark(`a:${a.code}`, x(last), y(rows[d][last]), 4, decileColour(a.decile), { alpha: 0, dur: 1300, delay: d * 40, layer: 4 }))
+    const v = value(a, c)
+    if (v === null) return
+    specs.push(
+      mark(`a:${a.code}`, x(last), clamp(y(v), yt, yb), 4, decileColour(a.decile), {
+        alpha: 0.4 * (1 - clamp01(t / last)),
+        dur: 1200,
+        delay: (a.decile - 1) * 35,
+        layer: 1,
+      })
+    )
   })
   const m0 = at(rows[0], t) as number
   const m9 = at(rows[9], t) as number
@@ -1222,7 +1257,8 @@ function avoidable(c: Ctx): Spec[] {
   const g = rowGeo(c, 10, { top: c.narrow ? 76 : 64, right: c.narrow ? 64 : 110, bottom: 44 })
   const top = Math.max(...rows.flatMap((r) => [r.then, r.now]))
   const x = scaleLinear().domain([0, top]).nice(5).range([g.left, g.right])
-  const dot = c.narrow ? 11 : 14
+  // Small dots, so the brick or teal change trail between ring and dot stays visible.
+  const dot = c.narrow ? 8 : 10
   const specs: Spec[] = []
   const followRow = followRowOf(c)
   rows.forEach((row, d) => {
@@ -1234,7 +1270,7 @@ function avoidable(c: Ctx): Spec[] {
     specs.push(
       line(`avs:${d}`, x(0), y, x(v), y, { color: col, width: c.narrow ? 2 : 2.5, alpha: 0.4, layer: 1, enter: "draw", enterDelay: 500 + delay, dur: 900 }),
       mark(`avr:${d}`, x(row.then), y, dot + 4, "none", { stroke: INK_3, strokeW: 1.5, layer: 4, enterDelay: 900 + delay, dur: 500 }),
-      line(`avl:${d}`, x(row.then), y, x(v), y, { color: rose ? BRICK : TEAL, width: 3.5, layer: 3, alpha: t > 0 ? 1 : 0 }),
+      line(`avl:${d}`, x(row.then), y, x(v), y, { color: rose ? BRICK : TEAL, width: 4, layer: 6, alpha: t > 0 ? 1 : 0 }),
       mark(`dec:${d}`, x(v), y, dot, col, { stroke: PAPER, strokeW: 1.5, layer: 5, delay, dur: 1200, arc: 0.12 }),
       txt(`cnt:${d}`, Math.max(x(v), x(row.then)) + dot, y, "", {
         value: v,
@@ -1299,7 +1335,8 @@ function healthy(c: Ctx): Spec[] {
     const y = g.y(d)
     specs.push(
       // Bars grow together, so no tenth looks healthiest just because it started first.
-      mark(`hb:${d}`, (x(0) + x(h)) / 2, y, x(h) - x(0), HEALTHY, { h: bh, rad: 3, arc: 0, enter: { x: x(0), w: 0, h: bh, alpha: 1 }, enterDelay: 400 + d * 12, dur: 1400, layer: 2 }),
+      // Bars linger as they leave, so the next scene's dots visibly split out of them.
+      mark(`hb:${d}`, (x(0) + x(h)) / 2, y, x(h) - x(0), HEALTHY, { h: bh, rad: 3, arc: 0, enter: { x: x(0), w: 0, h: bh, alpha: 1 }, enterDelay: 400 + d * 12, dur: 1400, layer: 2, exit: "fade", exitDelay: 650 }),
       mark(`pb:${d}`, (x(h) + x(L)) / 2 + 1, y, Math.max(0, x(L) - x(h) - 2), POOR, { h: bh, rad: 3, hatch: true, arc: 0, enter: { x: x(h), w: 0, h: bh, alpha: 1 }, enterDelay: 1700 + d * 12, dur: 900, layer: 2 }),
       txt(`hbv:${d}`, x(h) - 8, y + 0.5, "", { value: h, format: (v) => years(v), align: "right", size: c.narrow ? 10.5 : 11.5, weight: 600, color: WHITE, enter: { x: x(0) - 8, value: 0, alpha: 1 }, enterDelay: 400 + d * 12, dur: 1400, layer: 9 }),
       txt(`pbv:${d}`, (x(h) + x(L)) / 2 + 1, y + 0.5, years(L - h), { align: "center", size: c.narrow ? 10 : 11, color: INK_2, enterDelay: 2300 + d * 12, layer: 9, alpha: x(L) - x(h) > 34 ? 1 : 0 }),
@@ -1317,7 +1354,8 @@ function healthy(c: Ctx): Spec[] {
   specs.push(
     // Short ticks down to the first row's bar end and the last row's, joined by a bracket above.
     line("hg:0", x(h0), topY, x(h0), g.y(0) - bh / 2 - 2, { alpha: 0.7, enter: "draw", enterDelay: 2700, layer: 6 }),
-    line("hg:9", x(h9), topY, x(h9), g.y(0) - bh / 2 - 2, { alpha: 0.7, enter: "draw", enterDelay: 2700, layer: 6 }),
+    // The far tick runs down behind the bars to the least deprived row, whose healthy years it marks.
+    line("hg:9", x(h9), topY, x(h9), g.y(9), { alpha: 0.7, dash: [2, 3], enter: "draw", enterDelay: 2700, layer: 1 }),
     line("hg:br", x(h0), topY, x(h9), topY, { width: 1.25, enter: "draw", enterDelay: 2900, layer: 6 }),
     txt("hg:lab", (x(h0) + x(h9)) / 2, topY - 14, "", { value: h9 - h0, format: (v) => `${years(v)} healthy years`, align: "center", size: c.narrow ? 13 : 16, font: "display", color: INK, halo: true, enter: { value: 0 }, enterDelay: 3000, dur: 900 }),
     ...followRowMark(c, g, followRow)
@@ -1437,6 +1475,9 @@ function scatter(c: Ctx): Spec[] {
 
 // ——— VI. Two places ———————————————————————————————————————————————
 
+/** Short row labels for phones. */
+const BRIEF: Record<string, string> = { childPoverty: "Child poverty", inactive: "Inactive adults", alcohol: "Alcohol admissions" }
+
 function pairWhy(c: Ctx): Spec[] {
   const { data, sex, box } = c
   const P = pairOf(c)
@@ -1448,6 +1489,7 @@ function pairWhy(c: Ctx): Spec[] {
     {
       key: "hle",
       label: "Healthy life expectancy",
+      brief: "Healthy years",
       note: `years, ${data.hlePeriod}${P.hle.high === null ? `; not published for districts such as ${P.high.name}` : ""}`,
       low: P.hle.low,
       high: P.hle.high,
@@ -1455,25 +1497,27 @@ function pairWhy(c: Ctx): Spec[] {
       unit: "",
       stand: false,
     },
-    { key: "av", label: `Avoidable deaths under 75, ${who(sex).toLowerCase()}`, note: `per 100,000, ${data.avPeriods[last]}`, low: av.low[last], high: av.high[last], england: av.england[last], unit: "", stand: true },
-    ...P.factors.map((f) => ({ key: f.key, label: f.label, note: `${f.unit === "%" ? "%" : f.unit}, ${f.period}`, low: f.low, high: f.high, england: f.england, unit: f.unit === "%" ? "%" : "", stand: true })),
+    { key: "av", label: `Avoidable deaths under 75, ${who(sex).toLowerCase()}`, brief: "Avoidable deaths", note: `per 100,000, ${data.avPeriods[last]}`, low: av.low[last], high: av.high[last], england: av.england[last], unit: "", stand: true },
+    ...P.factors.map((f) => ({ key: f.key, label: f.label, brief: BRIEF[f.key] ?? f.label, note: `${f.unit === "%" ? "%" : f.unit}, ${f.period}`, low: f.low, high: f.high, england: f.england, unit: f.unit === "%" ? "%" : "", stand: true })),
   ]
-  const left = box.x + 4
-  const right = box.x + box.w - (c.narrow ? 54 : 92)
+  // Phones get one line per row: a short label, then the track, values above the dots, no notes.
+  const compact = c.narrow
+  const labelW = compact ? Math.min(118, box.w * 0.3) : 0
+  const left = box.x + 4 + labelW
+  const right = box.x + box.w - (compact ? 48 : 92)
   const rowH = box.h / rows.length
   const specs: Spec[] = []
   const { low, high } = pairCodes(c)
   rows.forEach((row, k) => {
-    // Phones: label, then the track with values below it; England's tick carries no text.
-    const top = box.y + rowH * k + (c.narrow ? 2 : 14)
-    const trackY = top + (c.narrow ? 24 : 54)
+    const top = box.y + rowH * k + (compact ? rowH / 2 : 14)
+    const trackY = compact ? top : top + 54
     const max = Math.max(row.low ?? 0, row.high ?? 0, row.england ?? 0) * 1.12
     const x = scaleLinear().domain([0, max]).range([left, right])
     const delay = k * 160
     const digits = row.unit === "%" || row.key === "hle" ? 1 : 0
     specs.push(
-      txt(`pw:${row.key}:label`, left, top, row.label, { size: c.narrow ? 11.5 : 14, weight: 600, color: INK, delay, enter: "rise" }),
-      txt(`pw:${row.key}:note`, left, top + 18, row.note, { size: 11, color: INK_3, delay, enter: "rise", alpha: c.narrow ? 0 : 1 }),
+      txt(`pw:${row.key}:label`, compact ? box.x : left, top, compact ? row.brief : row.label, { size: compact ? 11 : 14, weight: 600, color: INK, delay, enter: "rise" }),
+      txt(`pw:${row.key}:note`, left, top + 18, row.note, { size: 11, color: INK_3, delay, enter: "rise", alpha: compact ? 0 : 1 }),
       line(`pw:${row.key}:track`, x(0), trackY, x(max), trackY, { color: LINE, width: 2, enter: "draw", delay, dur: 900, layer: 1 })
     )
     if (row.england !== null)
@@ -1497,9 +1541,9 @@ function pairWhy(c: Ctx): Spec[] {
           dur: 1200,
           layer: 5,
         }),
-        txt(`pw:${row.key}:${d.side}:v`, x(d.v), trackY + (c.narrow ? 17 : -18), `${d.stand ? `${short(d.stand.name, c.narrow)} ` : ""}${years(d.v, digits)}${row.unit}`, {
+        txt(`pw:${row.key}:${d.side}:v`, x(d.v), trackY - (compact ? 14 : 18), `${d.stand && !compact ? `${d.stand.name} ` : ""}${years(d.v, digits)}${row.unit}`, {
           align: "center",
-          size: c.narrow ? 11.5 : 12.5,
+          size: compact ? 10.5 : 12.5,
           weight: 700,
           color: d.colour,
           halo: true,
@@ -1512,7 +1556,13 @@ function pairWhy(c: Ctx): Spec[] {
     const ratio = row.low !== null && other !== null ? (row.key === "hle" ? row.low - other : row.low / other) : null
     if (ratio !== null)
       specs.push(
-        txt(`pw:${row.key}:vs`, box.x + box.w, trackY + (c.narrow ? 15 : 20), row.high === null ? "vs England" : "", { align: "right", size: 10, color: INK_3, enterDelay: 1000 + delay }),
+        txt(
+          `pw:${row.key}:vs`,
+          box.x + box.w,
+          trackY + (compact ? -15 : 20),
+          row.high === null ? "vs England" : row.stand && sub.low && !compact ? `${short(sub.low.name, true)} vs ${short(P.high.name, true)}` : "",
+          { align: "right", size: 10, color: INK_3, enterDelay: 1000 + delay }
+        ),
         txt(`pw:${row.key}:ratio`, box.x + box.w, trackY, "", {
           value: ratio,
           format: (v) => (row.key === "hle" ? `${signed(v)}${c.narrow ? "" : " yrs"}` : `${v.toFixed(1)}×`),
@@ -1526,13 +1576,22 @@ function pairWhy(c: Ctx): Spec[] {
         })
       )
   })
-  const keyW = textWidth(P.low.name, 11.5, 600)
+  const kx = box.x + 4
+  const lowName = short(P.low.name, compact)
+  const highName = short(P.high.name, compact)
+  const keyW = textWidth(lowName, 11.5, 600)
   specs.push(
-    mark("pw:key:low", left + 5, box.y - 16, 10, BRICK, { arc: 0, layer: 8 }),
-    txt("pw:key:lowt", left + 15, box.y - 16, P.low.name, { size: 11.5, weight: 600, color: INK }),
-    mark("pw:key:high", left + keyW + 32, box.y - 16, 10, TEAL, { arc: 0, layer: 8 }),
-    txt("pw:key:hight", left + keyW + 42, box.y - 16, P.high.name, { size: 11.5, weight: 600, color: INK }),
-    txt("pw:key:ratio", box.x + box.w, box.y - 16, "Difference", { align: "right", size: 10, caps: true, weight: 600 })
+    mark("pw:key:low", kx + 5, box.y - 16, 10, BRICK, { arc: 0, layer: 8 }),
+    txt("pw:key:lowt", kx + 15, box.y - 16, lowName, { size: 11.5, weight: 600, color: INK }),
+    mark("pw:key:high", kx + keyW + 32, box.y - 16, 10, TEAL, { arc: 0, layer: 8 }),
+    txt("pw:key:hight", kx + keyW + 42, box.y - 16, highName, { size: 11.5, weight: 600, color: INK }),
+    txt("pw:key:ratio", box.x + box.w, box.y - 16, compact ? "" : "Difference", { align: "right", size: 10, caps: true, weight: 600 }),
+    ...(sub.low
+      ? [
+          mark("pw:key:stand", kx + keyW + 42 + textWidth(highName, 11.5, 600) + 24, box.y - 16, 10, "none", { stroke: BRICK, strokeW: 1.75, arc: 0, layer: 8 }),
+          txt("pw:key:standt", kx + keyW + 52 + textWidth(highName, 11.5, 600) + 24, box.y - 16, compact ? sub.low.name : `${sub.low.name}, standing in`, { size: 11.5, color: INK_2 }),
+        ]
+      : [])
   )
   return specs
 }
@@ -1546,16 +1605,16 @@ export const SCENES: SceneDef[] = [
   { id: "swarm", chapter: 0, build: swarm, aria: () => "Every UK local authority on one life expectancy axis" },
   { id: "map", chapter: 0, build: (c) => map(c, "gap"), aria: () => "Hex map of UK local authorities coloured by gap to the UK average" },
   { id: "ends", chapter: 0, build: (c) => map(c, "ends"), aria: () => "Hex map with the ten highest and ten lowest places ringed" },
-  { id: "rewind", chapter: 1, time: { from: 0, to: 0, ms: 0 }, build: (c) => stallChart(c, "rewind"), aria: () => "Every place in 2001–03, on a timeline" },
+  { id: "rewind", chapter: 1, time: { from: "now", to: 0, ms: 1800, delay: 1100 }, build: (c) => stallChart(c, "rewind"), aria: () => "Every place in 2001–03, on a timeline" },
   { id: "gains", chapter: 1, time: { from: 0, to: "stall", ms: 4200, delay: 400 }, build: (c) => stallChart(c, "gains"), aria: () => "Life expectancy rising from 2001–03 to 2011–13" },
   { id: "flat", chapter: 1, time: { from: "stall", to: "precovid", ms: 3000, delay: 300 }, build: (c) => stallChart(c, "flat"), aria: () => "Life expectancy flattening from 2011–13 to 2017–19" },
   { id: "covid", chapter: 1, time: { from: "precovid", to: "now", ms: 3000, delay: 300 }, build: (c) => stallChart(c, "covid"), aria: () => "COVID-19 and the shortfall against the earlier trend" },
-  { id: "peers", chapter: 2, time: { from: 0, to: "now", ms: 6000, delay: 1300, axis: "years" }, build: peers, aria: () => "UK life expectancy among OECD countries, 2001 onwards" },
+  { id: "peers", chapter: 2, time: { from: 0, to: "now", ms: 6000, delay: 500, axis: "years" }, build: peers, aria: () => "UK life expectancy among OECD countries, 2001 onwards" },
   { id: "pinned", chapter: 2, time: { from: "now", to: "now", ms: 0, axis: "years" }, build: pinned, aria: () => "Life expectancy against each country's 2011 level" },
   { id: "rank", chapter: 2, time: { from: "now", to: "now", ms: 0, axis: "years" }, build: rankChart, aria: () => "Rank of each OECD country by life expectancy, 2001 onwards" },
   { id: "tenths", chapter: 3, build: (c) => tenths(c, "level"), aria: () => "English local authorities in ten deprivation groups" },
   { id: "moved", chapter: 3, build: (c) => tenths(c, "change"), aria: () => "Change in life expectancy since 2011–13 by deprivation group" },
-  { id: "widening", chapter: 3, time: { from: 0, to: "now", ms: 6500, delay: 1300 }, build: widening, aria: () => "Mean life expectancy of each deprivation tenth over time" },
+  { id: "widening", chapter: 3, time: { from: 0, to: "now", ms: 6500, delay: 600 }, build: widening, aria: () => "Mean life expectancy of each deprivation tenth over time" },
   { id: "avoidable", chapter: 3, time: { from: 0, to: 1, ms: 1800, delay: 2000, axis: "avoidable" }, build: avoidable, aria: () => "Avoidable deaths under 75 by deprivation tenth, then and now" },
   { id: "healthy", chapter: 4, build: healthy, aria: () => "Years in good health and not in good health by deprivation tenth" },
   { id: "poverty", chapter: 5, build: (c) => scatter({ ...c, factor: 0 }), aria: () => "Child poverty against life expectancy, English local authorities" },
