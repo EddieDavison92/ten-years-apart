@@ -188,8 +188,9 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
         title: "Falling back",
         body: (
           <>
-            Was the stall only British? Here is the UK among the {I.countries.length} OECD countries, from Japan to Mexico. In 2011 UK{" "}
-            {w.plural} could expect {side(lead(2011))} the OECD average. By {last} they were <B>{side(lead(last))}</B> it.
+            Was the stall only British? Here is the UK beside eight familiar OECD members and the average of all{" "}
+            {I.countries.length}. In 2011 UK {w.plural} could expect {side(lead(2011))} the OECD average. By {last} they were{" "}
+            <B>{side(lead(last))}</B> it.
           </>
         ),
         note: "OECD Health Statistics, single calendar years. The average is the unweighted mean of members. UK figures differ slightly from the ONS three-year estimates used elsewhere.",
@@ -209,7 +210,8 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
         title: "Down the table",
         body: (
           <>
-            Now rank the countries each year, longest life expectancy at the top. UK {w.plural} were {nth(at(2001))} in 2001 and{" "}
+            Now all {I.countries.length} members, ranked each year with the longest life expectancy at the top; each name shows its{" "}
+            {lastYear} figure. UK {w.plural} were {nth(at(2001))} in 2001 and{" "}
             {nth(at(2011))} in 2011. By {lastYear} they were <B>{nth(R[last] as number)} of {I[sex].reporting[last]}</B>.
           </>
         ),

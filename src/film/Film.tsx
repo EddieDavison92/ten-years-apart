@@ -636,8 +636,8 @@ function Rail({
 }) {
   const hold = holdFor(SCENES[index])
   const groups = CHAPTERS.map((name, ci) => ({ name, ci, scenes: SCENES.map((s, i) => ({ s, i })).filter(({ s }) => s.chapter === ci) }))
-  // Chapter names need room; narrower rails show numerals only.
-  const names = W >= 1240
+  // Every chapter name fits only on very wide screens; otherwise the current chapter is named and the rest numbered.
+  const names = W >= 1680
   const segment = (i: number) => (
     <button
       key={i}
@@ -672,15 +672,15 @@ function Rail({
         <ol className="flex min-w-0 flex-1 gap-4">
           {groups.map((g) => (
             // Single-scene chapters still need room for their names.
-            <li key={g.name} className="min-w-0" style={{ flex: `${Math.max(g.scenes.length, names ? 2.2 : 1)} 1 0` }}>
+            <li key={g.name} className="min-w-0" style={{ flex: `${Math.max(g.scenes.length, names || g.ci === chapter ? 2.4 : 1)} 1 0` }}>
               <button
                 type="button"
                 onClick={() => onGo(g.scenes[0].i)}
                 title={g.name}
                 className={cn("kicker block max-w-full truncate whitespace-nowrap text-left transition-colors", g.ci === chapter ? "!text-ink" : "!text-ink-3 hover:!text-ink")}
               >
-                <span className={names ? "mr-1.5" : ""}>{ROMAN[g.ci]}</span>
-                {names ? g.name : null}
+                <span className={names || g.ci === chapter ? "mr-1.5" : ""}>{ROMAN[g.ci]}</span>
+                {names || g.ci === chapter ? g.name : null}
               </button>
               <div className="mt-0.5 flex gap-1">{g.scenes.map(({ i }) => segment(i))}</div>
             </li>

@@ -743,13 +743,6 @@ function stallChart(c: Ctx, stage: Stage): Spec[] {
 
 // ——— Among peers ————————————————————————————————————————————————
 
-function intlDomain(c: Ctx): [number, number] {
-  return cached(`idom:${c.sex}`, () => {
-    const v = c.data.intl.countries.flatMap((k) => k[c.sex]).filter((x): x is number => x !== null)
-    return [Math.floor(Math.min(...v)) - 1, Math.ceil(Math.max(...v)) + 1]
-  })
-}
-
 /** Familiar comparators, named and coloured in every international scene; the other members stay faint. */
 const FAMILIAR: Record<string, string> = {
   JPN: "#7b5ea7",
@@ -767,6 +760,20 @@ const countryStyle = (code: string) =>
     : FAMILIAR[code]
       ? { colour: FAMILIAR[code], width: 1.75, alpha: 0.9, layer: 4, head: 7 }
       : { colour: INK_4, width: 1, alpha: 0.35, layer: 2, head: 4.5 }
+
+/** Countries drawn as lines: the UK and the named comparators. The rest live in the average and the table. */
+const shown = (code: string) => code === "GBR" || Boolean(FAMILIAR[code])
+
+function intlDomain(c: Ctx): [number, number] {
+  return cached(`idom:${c.sex}`, () => {
+    const v = c.data.intl.countries
+      .filter((k) => shown(k.code))
+      .flatMap((k) => k[c.sex])
+      .concat(c.data.intl[c.sex].average)
+      .filter((x): x is number => x !== null)
+    return [Math.floor(Math.min(...v)) - 1, Math.ceil(Math.max(...v)) + 1]
+  })
+}
 
 const flatPts = (values: (number | null)[], x: (i: number) => number, y: (v: number) => number) =>
   Float64Array.from(values.flatMap((v, i) => [x(i), v === null ? NaN : y(v)]))
@@ -789,7 +796,7 @@ function peers(c: Ctx): Spec[] {
   }
   const marks = [2001, 2011, 2019, intl.years[n - 1]].filter((yr, i, a) => a.indexOf(yr) === i && (!c.narrow || yr !== 2019))
   for (const yr of marks) specs.push(txt(`yr:${yr}`, x(intl.years.indexOf(yr)), y0 + 20, String(yr), { align: "center" }))
-  specs.push(txt(`yt:peers:${sex}`, x(0) - 12, box.y - 2, `${who(sex)} · life expectancy at birth · ${intl.countries.length} OECD countries`, { size: 10, caps: true, weight: 600 }))
+  specs.push(txt(`yt:peers:${sex}`, x(0) - 12, box.y - 2, `${who(sex)} · life expectancy at birth · UK, OECD average and eight members`, { size: 10, caps: true, weight: 600 }))
   const i2011 = intl.years.indexOf(2011)
   specs.push(
     line("peers:2011", x(i2011), y(dom[1]), x(i2011), y0, { dash: [2, 4], alpha: 0.5, layer: 1 }),
@@ -800,6 +807,7 @@ function peers(c: Ctx): Spec[] {
   const draw = t / (n - 1)
   const labels: { id: string; y: number; value: number; name: string; colour: string; weight: number }[] = []
   intl.countries.forEach((k, i) => {
+    if (!shown(k.code)) return
     const uk = k.code === "GBR"
     const st = countryStyle(k.code)
     const v = at(k[sex], t)
@@ -872,9 +880,13 @@ function rankChart(c: Ctx): Spec[] {
         dur: 1300,
       })
     )
-    if (uk || FAMILIAR[cn.code] || all)
+    // Each name carries its life expectancy, so a place in the table reads as years.
+    const v = at(cn[sex], t)
+    if (uk || (FAMILIAR[cn.code] && !c.narrow) || all)
       specs.push(
-        txt(`rkl:${cn.code}`, x(t) + 12, y(r), uk ? `United Kingdom ${nth(Math.round(r))}` : cn.name, {
+        txt(`rkl:${cn.code}`, x(t) + 12, y(r), "", {
+          value: v ?? 0,
+          format: (n) => (uk ? `${c.narrow ? "UK" : "United Kingdom"} ${nth(Math.round(r))} · ${years(n)}` : `${cn.name} ${years(n)}`),
           size: uk ? 12 : Math.min(11, rowH * 0.85),
           weight: uk ? 700 : FAMILIAR[cn.code] ? 600 : 400,
           color: uk ? INK : FAMILIAR[cn.code] ? st.colour : INK_3,
@@ -916,7 +928,7 @@ function pace(c: Ctx): Spec[] {
     const delay = i * 22
     const named = !c.narrow || uk || i === 0 || i === rows.length - 1
     specs.push(
-      txt(`pc:${r.code}:name`, g.left - 12, y, uk ? "United Kingdom" : (names.get(r.code) ?? r.code), {
+      txt(`pc:${r.code}:name`, g.left - 12, y, uk ? (c.narrow ? "UK" : "United Kingdom") : (names.get(r.code) ?? r.code), {
         align: "right",
         size: c.narrow ? 10 : Math.min(11.5, g.rowH * 0.78),
         weight: uk ? 700 : FAMILIAR[r.code] ? 600 : 400,
