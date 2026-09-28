@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    @apply h-full overflow-hidden bg-paper font-sans text-ink antialiased;
+    overscroll-behavior: none;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    font-optical-sizing: auto;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: #cfe3dc;
+    color: #0a4c41;
+  }
+  :focus-visible {
+    outline: 2px solid #0f6b5c;
+    outline-offset: 2px;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+}
+
+@layer components {
+  .kicker {
+    @apply text-[11px] font-semibold uppercase leading-4 tracking-[0.12em] text-ink-3;
+  }
+  .display {
+    font-family: var(--font-display), Georgia, serif;
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    font-variant-numeric: lining-nums tabular-nums;
+  }
+}
+
+/* Captions: the new one rises line by line, the old one lifts away. */
+.cap-in .cap > * {
+  animation: cap-rise 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.cap-in .cap > :nth-child(1) { animation-delay: 0ms; }
+.cap-in .cap > :nth-child(2) { animation-delay: 70ms; }
+.cap-in .cap > :nth-child(3) { animation-delay: 160ms; }
+.cap-in .cap > :nth-child(4) { animation-delay: 240ms; }
+.cap-in .cap > :nth-child(5) { animation-delay: 320ms; }
+.cap-in .cap > :nth-child(6) { animation-delay: 400ms; }
+.cap-wait .cap > * {
+  animation-delay: calc(var(--wait, 220ms)) !important;
+}
+.cap-wait .cap > :nth-child(2) { --wait: 290ms; }
+.cap-wait .cap > :nth-child(3) { --wait: 380ms; }
+.cap-wait .cap > :nth-child(4) { --wait: 460ms; }
+.cap-wait .cap > :nth-child(5) { --wait: 540ms; }
+.cap-wait .cap > :nth-child(6) { --wait: 620ms; }
+.cap-out {
+  animation: cap-leave 380ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@keyframes cap-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+@keyframes cap-leave {
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+    filter: blur(2px);
+  }
+}
+@keyframes menu {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes tick {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cap-in .cap > *,
+  .cap-out {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+  }
+}
