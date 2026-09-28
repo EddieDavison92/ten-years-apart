@@ -226,27 +226,31 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
         note: `In ${lastYear}, ${words(near)} countries were within six months of the UK, so small differences move it several places. The gap to the average is the steadier measure.`,
       }
     }
-    case "pace": {
-      const I = data.intl[sex]
-      const uk = I.rows.find((r) => r.code === "GBR")!
-      const n = I.rows.length
-      const names = new Map(data.intl.countries.map((k) => [k.code, k.name]))
-      const slower = I.slower.map((c) => names.get(c) ?? c)
-      const avg = I.averagePace
-      const vsAvg = uk.pre * 12 - avg.pre * 12
+    case "pinned": {
+      const I = data.intl
+      const Y = I.years
+      const i11 = Y.indexOf(2011)
+      const i19 = Y.indexOf(2019)
+      const last = Y.length - 1
+      const gain = (v: (number | null)[], i: number) => (v[i] ?? v[i - 1] ?? 0) - (v[i11] as number)
+      const ukv = I.countries.find((k) => k.code === "GBR")![sex]
+      const g19 = gain(ukv, i19)
+      const gL = gain(ukv, last)
+      const avg = I[sex].average
+      const names = new Map(I.countries.map((k) => [k.code, k.name]))
+      // Members that gained less than the UK by 2019, before COVID-19; changes within 0.05 years count as equal.
+      const less = I.countries.filter((k) => k.code !== "GBR" && gain(k[sex], i19) < g19 - 0.05).map((k) => names.get(k.code) ?? k.code)
       return {
-        title: "Among the slowest",
+        title: "Since 2011",
         body: (
           <>
-            How many months of life expectancy each country added per year, before and after 2011. From 2001 to 2011 UK {w.plural} gained{" "}
-            {years(uk.pre * 12)} months a year,{" "}
-            {Math.abs(vsAvg) < 0.3 ? "about the OECD average" : vsAvg > 0 ? `faster than the OECD average (${years(avg.pre * 12)})` : `slower than the OECD average (${years(avg.pre * 12)})`}
-            . From 2011 to 2019 that fell to <B>{years(uk.post * 12)}</B>, {I.post.joint ? "joint " : ""}
-            {nth(I.post.rank)} of {n}
-            {slower.length ? `; only ${list(slower)} ${slower.length === 1 ? "was" : "were"} slower` : ""}.
+            Slide every line so it passes through zero in 2011. To the left, each country climbs to its 2011 level; to the right is what
+            it has gained since. By 2019 UK {w.plural} had gained <B>{years(g19)} years</B>, against {years(avg[i19] - avg[i11])} for the OECD
+            average; {less.length === 0 ? "no member gained less" : `only ${list(less)} gained less`}. By {Y[last]} the UK was{" "}
+            {years(Math.abs(gL))} years {gL >= 0 ? "above" : "below"} its 2011 level.
           </>
         ),
-        note: "Paces are the trend across each stretch's single years, which damps a good or bad year. A pace of 12 months a year would add a year of life expectancy every year.",
+        note: "2019 is the last year before COVID-19. Single calendar years from OECD Health Statistics.",
       }
     }
     case "tenths":

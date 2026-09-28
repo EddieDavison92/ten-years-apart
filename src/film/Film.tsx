@@ -799,7 +799,8 @@ function CountryTip({ k, hover, data, sex, W, H }: { k: number; hover: Hover; da
   const m = latest("male")
   const f = latest("female")
   const rank = I[sex].ranks[k][last]
-  const pace = I[sex].rows[k]
+  const i11 = I.years.indexOf(2011)
+  const since = (i: number) => (c[sex][i] !== null && c[sex][i11] !== null ? (c[sex][i] as number) - (c[sex][i11] as number) : null)
   const gap = hover.r + 18
   const left = hover.x + gap + 220 > W ? hover.x - gap - 220 : hover.x + gap
   const top = clamp(hover.y - 50, 8, H - 170)
@@ -824,7 +825,7 @@ function CountryTip({ k, hover, data, sex, W, H }: { k: number; hover: Hover; da
             <br />
           </>
         ) : null}
-        Gained {years(pace.pre * 12)} → {years(pace.post * 12)} months a year
+        Since 2011: {signed(since(I.years.indexOf(2019)))} by 2019, {signed(since(last))} by {I.years[last]}
       </p>
     </div>
   )
