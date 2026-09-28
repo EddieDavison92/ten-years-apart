@@ -2,13 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react"
 import { copyFor, Methods } from "@/film/copy"
-import { CHAPTERS, SCENES, timeOf, timeRange, type SceneDef } from "@/film/scenes"
+import { CHAPTERS, COUNTRY_HIT, SCENES, timeOf, timeRange, type SceneDef } from "@/film/scenes"
 import { Stage, type Hover, type StageHandle } from "@/film/Stage"
 import { Mark, PlaceSearch, Ruler, SexToggle, TimeBar, type TimeBarHandle } from "@/film/ui"
 import type { Box } from "@/film/geo"
 import type { FilmData, Sex } from "@/lib/compute"
 import { cn } from "@/lib/cn"
-import { signed, years } from "@/lib/format"
+import { nth, signed, years } from "@/lib/format"
 
 const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"]
 const LONG_READ = "https://life-expectancy-uk.vercel.app/"
@@ -238,7 +238,8 @@ function Player({ data, W, H }: { data: FilmData; W: number; H: number }) {
   }
 
   const copy = copyFor(scene.id, { data, sex, factor })
-  const hovered = hover ? data.areas[hover.index] : null
+  const hovered = hover && hover.index < COUNTRY_HIT ? data.areas[hover.index] : null
+  const country = hover && hover.index >= COUNTRY_HIT ? hover.index - COUNTRY_HIT : null
   const [t0, t1] = timeRange(lay.box, lay.narrow)
   const chapter = scene.chapter
   const capKey = `${scene.id}:${sex}:${scene.factors ? factor : ""}`
@@ -329,6 +330,7 @@ function Player({ data, W, H }: { data: FilmData; W: number; H: number }) {
       ) : null}
 
       {hovered && hover ? <Tooltip area={hovered} hover={hover} data={data} sex={sex} scene={scene} factor={factor} W={W} H={H} /> : null}
+      {country !== null && hover ? <CountryTip k={country} hover={hover} data={data} sex={sex} W={W} H={H} /> : null}
 
       {/* One live region for screen readers; the captions themselves aren't live. */}
       <p className="sr-only" aria-live="polite">
@@ -780,6 +782,49 @@ function Tooltip({
           ) : null}
         </p>
       ) : null}
+    </div>
+  )
+}
+
+/** An OECD member: latest life expectancy for both sexes, this sex's rank, and its pace before and after 2011. */
+function CountryTip({ k, hover, data, sex, W, H }: { k: number; hover: Hover; data: FilmData; sex: Sex; W: number; H: number }) {
+  const I = data.intl
+  const c = I.countries[k]
+  const last = I.years.length - 1
+  const latest = (s: Sex) => {
+    for (let i = last; i >= 0; i -= 1) if (c[s][i] !== null) return { v: c[s][i] as number, year: I.years[i] }
+    return null
+  }
+  const m = latest("male")
+  const f = latest("female")
+  const rank = I[sex].ranks[k][last]
+  const pace = I[sex].rows[k]
+  const gap = hover.r + 18
+  const left = hover.x + gap + 220 > W ? hover.x - gap - 220 : hover.x + gap
+  const top = clamp(hover.y - 50, 8, H - 170)
+  return (
+    <div
+      className="pointer-events-none absolute z-40 w-[220px] rounded-2xl border border-ink/10 bg-white/95 px-4 py-3 shadow-[0_18px_40px_-20px_rgba(17,19,21,0.5)] backdrop-blur [animation:menu_140ms_ease-out]"
+      style={{ left, top }}
+    >
+      <p className="text-[14px] font-semibold leading-tight text-ink">{c.name}</p>
+      <dl className="tabular mt-2 grid grid-cols-[1fr_auto_auto] gap-x-3 gap-y-1 text-[12px] text-ink-2">
+        <dt className="text-ink-3">Life expectancy</dt>
+        <dd className="text-right text-ink-3">Men</dd>
+        <dd className="text-right text-ink-3">Women</dd>
+        <dt>{m?.year ?? I.years[last]}</dt>
+        <dd className={cn("text-right", sex === "male" ? "font-semibold text-ink" : "")}>{years(m?.v)}</dd>
+        <dd className={cn("text-right", sex === "female" ? "font-semibold text-ink" : "")}>{years(f?.v)}</dd>
+      </dl>
+      <p className="mt-2 border-t border-ink/10 pt-2 text-[12px] leading-relaxed text-ink-2">
+        {rank ? (
+          <>
+            {nth(rank)} of {I[sex].reporting[last]} in {I.years[last]}
+            <br />
+          </>
+        ) : null}
+        Gained {years(pace.pre * 12)} → {years(pace.post * 12)} months a year
+      </p>
     </div>
   )
 }

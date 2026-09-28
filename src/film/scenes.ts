@@ -58,6 +58,8 @@ export const GAP_SPAN = 4.5
 export const CHANGE_SPAN = 1.5
 const WHITE = "#ffffff"
 /** Deaths per 100,000 that one dot stands for. */
+/** Hover indices at or above this are OECD countries (index into data.intl.countries), below are local areas. */
+export const COUNTRY_HIT = 1000
 /** New axis ticks appear after existing ones finish moving, ms. */
 const TICK_WAIT = 600
 
@@ -391,8 +393,11 @@ function swarm(c: Ctx): Spec[] {
     })
   )
   const swarmAt = (p: Pt): Timing => ({ delay: ((p.x - box.x) / box.w) * 300, dur: 1100, enterDelay: 250 })
-  specs.push(...pill(`lab:${low}`, lp, r + 1, pairOf(c).low.name, years(value(data.areas[areaIndex(c, low)], c)), c, { side: "below", lift: bottomY - lp.y + 18, tone: BRICK, at: swarmAt(lp) }))
-  specs.push(...pill(`lab:${high}`, hp, r + 1, pairOf(c).high.name, years(value(data.areas[areaIndex(c, high)], c)), c, { side: "below", lift: bottomY - hp.y + 18, tone: TEAL, at: swarmAt(hp) }))
+  // Labels hang below the swarm when there's room above the axis; otherwise they sit beside the end dots.
+  const below = box.y + box.h - 30 - (bottomY + r) > 70
+  const place = (p: Pt, side: "left" | "right") => (below ? { side: "below" as const, lift: bottomY - p.y + 18 } : { side, lift: 12 })
+  specs.push(...pill(`lab:${low}`, lp, r + 1, pairOf(c).low.name, years(value(data.areas[areaIndex(c, low)], c)), c, { ...place(lp, "left"), tone: BRICK, at: swarmAt(lp) }))
+  specs.push(...pill(`lab:${high}`, hp, r + 1, pairOf(c).high.name, years(value(data.areas[areaIndex(c, high)], c)), c, { ...place(hp, "right"), tone: TEAL, at: swarmAt(hp) }))
   const axisY = box.y + box.h - 6
   const ticks = x.ticks(c.narrow ? 5 : 8).filter((t) => t >= dom[0] && t <= dom[1])
   specs.push(line("age:base", x(dom[0]), axisY - 14, x(dom[1]), axisY - 14, { color: LINE, layer: 0 }))
@@ -815,6 +820,7 @@ function peers(c: Ctx): Spec[] {
     if (v === null) return
     specs.push(
       mark(uk ? "uk:head" : `ch:${k.code}`, x(t), y(v), st.head, st.colour, {
+        hit: COUNTRY_HIT + i,
         stroke: uk || FAMILIAR[k.code] ? PAPER : undefined,
         strokeW: uk ? 2.5 : FAMILIAR[k.code] ? 1.25 : 0,
         alpha: uk || FAMILIAR[k.code] ? 1 : 0.7,
@@ -872,7 +878,8 @@ function rankChart(c: Ctx): Spec[] {
     specs.push(path(uk ? "tr:uk" : `c:${cn.code}`, pts[i], { color: st.colour, width: st.width + (uk ? 0.5 : 0), alpha: Math.max(st.alpha, 0.45), draw: 1, layer: st.layer, dur: 1300 }))
     if (r === null) return
     specs.push(
-      mark(uk ? "uk:head" : `ch:${cn.code}`, x(t), y(r), st.head, st.colour, {
+      mark(uk ? "uk:head" : `ch:${cn.code}`, x(t), y(r), Math.max(st.head, 6), st.colour, {
+        hit: COUNTRY_HIT + i,
         stroke: uk || FAMILIAR[cn.code] ? PAPER : undefined,
         strokeW: uk ? 2.5 : FAMILIAR[cn.code] ? 1.25 : 0,
         layer: st.layer + 1,
@@ -952,7 +959,14 @@ function pace(c: Ctx): Spec[] {
         dur: 900,
       }),
       mark(`pc:${r.code}:pre`, pre, y, dot, PAPER, { stroke: colour, strokeW: 1.75, layer: 4, enterDelay: 350 + delay }),
-      mark(head, post, y, dot + (uk ? 2 : 0), uk ? BRICK : colour, { stroke: PAPER, strokeW: 1.5, layer: 5, delay, dur: 1200 }),
+      mark(head, post, y, dot + (uk ? 2 : 0), uk ? BRICK : colour, {
+        hit: avg ? undefined : COUNTRY_HIT + c.data.intl.countries.findIndex((k) => k.code === r.code),
+        stroke: PAPER,
+        strokeW: 1.5,
+        layer: 5,
+        delay,
+        dur: 1200,
+      }),
       txt(`pc:${r.code}:v0`, colPre, y, years(r.pre * 12), { align: "right", size: c.narrow ? 11 : 12.5, color: INK_3, enterDelay: 900 + delay }),
       txt(`pc:${r.code}:v1`, colPost, y, years(r.post * 12), {
         align: "right",
