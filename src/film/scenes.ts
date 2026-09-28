@@ -866,7 +866,14 @@ function rankChart(c: Ctx): Spec[] {
   specs.push(txt(`yt:rank:${sex}`, x(0) - 12, box.y - 2, `${who(sex)} · rank among OECD countries · 1st = longest life`, { size: 10, caps: true, weight: 600 }))
   const i2011 = intl.years.indexOf(2011)
   specs.push(line("peers:2011", x(i2011), y(1) - 8, x(i2011), y1, { dash: [2, 4], alpha: 0.5, layer: 1 }))
-  const pts = cached(`rpts:${sex}:${bk(box)}`, () => P.ranks.map((r) => flatPts(r, x, y)))
+  // Lines follow table position; labels give the competition rank, where ties share a place.
+  const pts = cached(`rpts:${sex}:${bk(box)}`, () => P.order.map((r) => flatPts(r, x, y)))
+  const rankLabel = (k: number, i: number) => {
+    const r = P.ranks[k][i]
+    if (r === null) return ""
+    const tied = P.ranks.some((other, j) => j !== k && other[i] === r)
+    return `${tied ? "=" : ""}${nth(r)}`
+  }
   // Labels list every country when rows are tall enough to read, otherwise the named ones.
   const rowH = (y1 - y(1)) / (count - 1)
   const all = rowH >= 11 && !c.narrow
@@ -874,7 +881,7 @@ function rankChart(c: Ctx): Spec[] {
   intl.countries.forEach((cn, i) => {
     const uk = cn.code === "GBR"
     const st = countryStyle(cn.code)
-    const r = at(P.ranks[i], t)
+    const r = at(P.order[i], t)
     specs.push(path(uk ? "tr:uk" : `c:${cn.code}`, pts[i], { color: st.colour, width: st.width + (uk ? 0.5 : 0), alpha: Math.max(st.alpha, 0.45), draw: 1, layer: st.layer, dur: 1300 }))
     if (r === null) return
     specs.push(
@@ -893,7 +900,7 @@ function rankChart(c: Ctx): Spec[] {
       specs.push(
         txt(`rkl:${cn.code}`, x(t) + 12, y(r), "", {
           value: v ?? 0,
-          format: (n) => (uk ? `${c.narrow ? "UK" : "United Kingdom"} ${nth(Math.round(r))} · ${years(n)}` : `${cn.name} ${years(n)}`),
+          format: (n) => (uk ? `${c.narrow ? "UK" : "United Kingdom"} ${rankLabel(i, Math.round(t))} · ${years(n)}` : `${cn.name} ${years(n)}`),
           size: uk ? 12 : Math.min(11, rowH * 0.85),
           weight: uk ? 700 : FAMILIAR[cn.code] ? 600 : 400,
           color: uk ? INK : FAMILIAR[cn.code] ? st.colour : INK_3,
@@ -905,11 +912,11 @@ function rankChart(c: Ctx): Spec[] {
   // Where the UK stood in 2001 and 2011.
   for (const yr of [2001, 2011]) {
     const i = intl.years.indexOf(yr)
-    const r = P.ranks[k][i]
-    if (r === null) continue
+    const pos = P.order[k][i]
+    if (pos === null) continue
     specs.push(
-      mark(`rk:uk:${yr}`, x(i), y(r), 9, PAPER, { stroke: INK, strokeW: 2, layer: 8, enterDelay: 1100 }),
-      txt(`rk:uk:${yr}:lab`, x(i), y(r) - 15, nth(r), { align: "center", size: 12, weight: 700, color: INK, halo: true, enterDelay: 1200 })
+      mark(`rk:uk:${yr}`, x(i), y(pos), 9, PAPER, { stroke: INK, strokeW: 2, layer: 8, enterDelay: 1100 }),
+      txt(`rk:uk:${yr}:lab`, x(i), y(pos) - 15, rankLabel(k, i), { align: "center", size: 12, weight: 700, color: INK, halo: true, enterDelay: 1200 })
     )
   }
   return specs

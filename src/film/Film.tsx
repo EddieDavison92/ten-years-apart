@@ -77,7 +77,7 @@ function layoutFor(W: number, H: number, opening = false): Layout {
 
 /** How long autoplay holds a scene: its time sweep plus reading time. */
 function holdFor(s: SceneDef) {
-  if (s.factors) return CYCLE_MS * 8 + 2500
+  if (s.factors) return CYCLE_MS * 7 + 2500
   if (s.time && s.time.ms) return (s.time.delay ?? 0) + s.time.ms + 5200
   return s.id === "open" ? 8000 : 8500
 }
@@ -103,7 +103,7 @@ function Player({ data, W, H }: { data: FilmData; W: number; H: number }) {
   const [dir, setDir] = useState<1 | -1>(1)
   const [sex, setSex] = useState<Sex>(initial.sex)
   const [follow, setFollow] = useState<string | null>(initial.follow)
-  const [factor, setFactor] = useState(1)
+  const [factor, setFactor] = useState(2)
   const [cycling, setCycling] = useState(!initial.reduce && Boolean(SCENES[initial.index].factors))
   const [playing, setPlaying] = useState(false)
   const [hover, setHover] = useState<Hover | null>(null)
@@ -132,8 +132,9 @@ function Player({ data, W, H }: { data: FilmData; W: number; H: number }) {
     setDir(n > cur ? 1 : -1)
     setIndex(n)
     setHover(null)
+    // The cycle starts after deprivation, which the poverty scene already compares.
     if (SCENES[n].factors) {
-      setFactor(1)
+      setFactor(2)
       setCycling(!initial.reduce)
     }
   }

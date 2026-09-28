@@ -40,7 +40,7 @@ const ENGLAND = "E92000001"
 const P_START = "2001 to 2003"
 const P_STALL = "2011 to 2013"
 const P_PRECOVID = "2017 to 2019"
-/** Circumstances shown against life expectancy. Child poverty leads; the rest follow by strength of link, air pollution last. */
+/** Circumstances shown against life expectancy. Child poverty leads; the rest follow by strength of link for men, air pollution last. */
 const FACTORS = ["childPoverty", "imd", "inactive", "obesity", "alcohol", "fuelPoverty", "smoking", "unemployment", "airPollution"]
 
 export type Area = {
@@ -106,43 +106,65 @@ function tenths(evidence: Evidence, grain: "ltla" | "utla", keep: (code: string)
 }
 
 /**
- * The UK among OECD members: annual pace of gains before and after 2011, in years per year.
- * The later stretch stops at 2019, the last year before COVID-19. A missing end year uses the
- * nearest reported year inside the stretch.
+ * The UK among OECD members. Paces are least-squares slopes over 2001–11 and 2011–19 (the last year
+ * before COVID-19), in years per year, so no single good or bad year sets them. Ranks are competition
+ * ranks (ties share a place); drawing order breaks ties by list order.
  */
 function peers(intl: Intl) {
   const at = (y: number) => intl.years.indexOf(y)
-  const pace = (v: (number | null)[], from: number, to: number) => {
-    let i = at(from)
-    let j = at(to)
-    while (i < j && v[i] === null) i += 1
-    while (j > i && v[j] === null) j -= 1
-    return ((v[j] as number) - (v[i] as number)) / (intl.years[j] - intl.years[i])
+  // Differences smaller than this count as ties: the data is published to one decimal place.
+  const EPS = 1e-6
+  const slope = (v: (number | null)[], from: number, to: number) => {
+    const pts: { x: number; y: number }[] = []
+    for (let i = at(from); i <= at(to); i += 1) if (v[i] !== null) pts.push({ x: intl.years[i], y: v[i] as number })
+    return linearFit(pts).slope
   }
-  // Unweighted mean of the members reporting each year.
-  const average = (sex: Sex) => intl.years.map((_, i) => round(mean(intl.countries.map((c) => c[sex][i])), 2) as number)
+  /** Fills a member's missing years from its nearest reported year, so averages always cover every member. */
+  const filled = (v: (number | null)[]) =>
+    v.map((x, i) => {
+      if (x !== null) return x
+      for (let d = 1; d < v.length; d += 1) {
+        const near = v[i - d] ?? v[i + d]
+        if (near !== null && near !== undefined) return near
+      }
+      return null
+    })
+  const average = (sex: Sex) => {
+    const all = intl.countries.map((c) => filled(c[sex]))
+    return intl.years.map((_, i) => round(mean(all.map((v) => v[i])), 2) as number)
+  }
   const bySex = (sex: Sex) => {
-    const rows = intl.countries.map((c) => ({ code: c.code, pre: pace(c[sex], 2001, 2011), post: pace(c[sex], 2011, 2019) }))
+    const rows = intl.countries.map((c) => ({ code: c.code, pre: slope(c[sex], 2001, 2011), post: slope(c[sex], 2011, 2019) }))
     const uk = rows.find((r) => r.code === "GBR")!
-    const rank = (value: (r: (typeof rows)[number]) => number) => [...rows].sort((a, b) => value(b) - value(a)).indexOf(uk) + 1
-    // Rank among members reporting each year, 1 = longest life expectancy.
+    /** 1 + the number strictly ahead, and whether anyone shares the place. */
+    const place = (value: (r: (typeof rows)[number]) => number) => ({
+      rank: 1 + rows.filter((r) => value(r) > value(uk) + EPS).length,
+      joint: rows.some((r) => r !== uk && Math.abs(value(r) - value(uk)) <= EPS),
+    })
     const ranks = intl.countries.map(() => intl.years.map(() => null as number | null))
+    const order = intl.countries.map(() => intl.years.map(() => null as number | null))
     const reporting = intl.years.map((_, i) => {
-      const order = intl.countries.map((c, k) => ({ k, v: c[sex][i] })).filter((d): d is { k: number; v: number } => d.v !== null)
-      order.sort((a, b) => b.v - a.v).forEach((d, r) => (ranks[d.k][i] = r + 1))
-      return order.length
+      const list = intl.countries.map((c, k) => ({ k, v: c[sex][i] })).filter((d): d is { k: number; v: number } => d.v !== null)
+      list.sort((a, b) => b.v - a.v)
+      list.forEach((d, r) => {
+        order[d.k][i] = r + 1
+        ranks[d.k][i] = 1 + list.filter((e) => e.v > d.v + EPS).length
+      })
+      return list.length
     })
     const avg = average(sex)
     return {
       rows,
-      /** The OECD average's own pace, from the unweighted mean series. */
-      averagePace: { pre: pace(avg, 2001, 2011), post: pace(avg, 2011, 2019) },
+      /** The OECD average's own pace, from the mean series. */
+      averagePace: { pre: slope(avg, 2001, 2011), post: slope(avg, 2011, 2019) },
+      /** Competition rank per member and year, for labels; `order` is the drawing position. */
       ranks,
+      order,
       reporting,
-      rankPre: rank((r) => r.pre),
-      rankPost: rank((r) => r.post),
-      rankDrop: rank((r) => r.pre - r.post),
-      slower: rows.filter((r) => r.post < uk.post).map((r) => r.code),
+      pre: place((r) => r.pre),
+      post: place((r) => r.post),
+      drop: place((r) => r.pre - r.post),
+      slower: rows.filter((r) => r.post < uk.post - EPS).map((r) => r.code),
       average: avg,
     }
   }

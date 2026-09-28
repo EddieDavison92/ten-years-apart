@@ -48,6 +48,12 @@ function avTrend(rows: { then: number; now: number }[]) {
     : `risen in ${words(rose.filter(Boolean).length)} of the ten tenths`
 }
 
+/** "edged up" for small rises, under 5% of the earlier rate. */
+function avTrendSized(rows: { then: number; now: number }[]) {
+  const most = Math.max(...rows.map((r) => (r.now - r.then) / r.then))
+  return most < 0.05 ? avTrend(rows).replace("risen", "edged up") : avTrend(rows)
+}
+
 const B = ({ children }: { children: ReactNode }) => <strong className="font-semibold text-ink">{children}</strong>
 
 export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
@@ -183,39 +189,41 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       const avg = I[sex].average
       const lead = (y: number) => (uk[I.years.indexOf(y)] as number) - avg[I.years.indexOf(y)]
       const last = I.years[I.years.length - 1]
-      const side = (d: number) => `${years(Math.abs(d))} years ${d >= 0 ? "above" : "below"}`
+      const vs = (d: number) => `${years(Math.abs(d))} years ${d >= 0 ? "longer than" : "less than"}`
       return {
         title: "Falling back",
         body: (
           <>
-            Was the stall only British? Here is the UK beside eight familiar OECD members and the average of all{" "}
-            {I.countries.length}. In 2011 UK {w.plural} could expect {side(lead(2011))} the OECD average. By {last} they were{" "}
-            <B>{side(lead(last))}</B> it.
+            Was the stall only British? Here is the UK beside eight other OECD members and the average of all {I.countries.length}. In
+            2011 UK {w.plural} could expect to live {vs(lead(2011))} the OECD average; by {last}, <B>{vs(lead(last)).replace(" than", "")}</B>.
           </>
         ),
-        note: "OECD Health Statistics, single calendar years. The average is the unweighted mean of members. UK figures differ slightly from the ONS three-year estimates used elsewhere.",
+        note: "OECD Health Statistics, single calendar years. The average is the unweighted mean of members, with Latvia's 2001 and Türkiye's 2024 filled from their nearest year. UK figures differ slightly from the ONS three-year estimates used elsewhere.",
       }
     }
     case "rank": {
       const I = data.intl
       const k = I.countries.findIndex((c) => c.code === "GBR")
       const R = I[sex].ranks[k]
-      const at = (y: number) => R[I.years.indexOf(y)] as number
       const last = I.years.length - 1
       const lastYear = I.years[last]
-      // How tightly the middle of the table packs, in years, for the latest year.
-      const vals = I.countries.map((c) => c[sex][last]).filter((v): v is number => v !== null).sort((a, b) => b - a)
-      const spread = vals[9] - vals[24]
+      const place = (i: number) => {
+        const r = R[i] as number
+        const tied = I[sex].ranks.some((o, j) => j !== k && o[i] === r)
+        return `${tied ? "joint " : ""}${nth(r)}`
+      }
+      const ukNow = I.countries[k][sex][last] as number
+      const near = I.countries.filter((c, j) => j !== k && c[sex][last] !== null && Math.abs((c[sex][last] as number) - ukNow) <= 0.5).length
       return {
         title: "Down the table",
         body: (
           <>
             Now all {I.countries.length} members, ranked each year with the longest life expectancy at the top; each name shows its{" "}
-            {lastYear} figure. UK {w.plural} were {nth(at(2001))} in 2001 and{" "}
-            {nth(at(2011))} in 2011. By {lastYear} they were <B>{nth(R[last] as number)} of {I[sex].reporting[last]}</B>.
+            {lastYear} figure. UK {w.plural} were {place(I.years.indexOf(2001))} in 2001 and {place(I.years.indexOf(2011))} in 2011. By{" "}
+            {lastYear} they were <B>{place(last)} of {I[sex].reporting[last]}</B>.
           </>
         ),
-        note: `The middle of the table is tight: in ${lastYear} only ${years(spread)} years separate 10th place from 25th, so small changes move a country several places.`,
+        note: `In ${lastYear}, ${words(near)} countries were within six months of the UK, so small differences move it several places. The gap to the average is the steadier measure.`,
       }
     }
     case "pace": {
@@ -227,16 +235,18 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       const avg = I.averagePace
       const vsAvg = uk.pre * 12 - avg.pre * 12
       return {
-        title: "Slower than almost everyone",
+        title: "Among the slowest",
         body: (
           <>
             How many months of life expectancy each country added per year, before and after 2011. From 2001 to 2011 UK {w.plural} gained{" "}
-            {years(uk.pre * 12)} months a year, {Math.abs(vsAvg) < 0.3 ? "about the OECD average" : vsAvg > 0 ? `faster than the OECD average (${years(avg.pre * 12)})` : `slower than the OECD average (${years(avg.pre * 12)})`}.
-            From 2011 to 2019 that fell to <B>{years(uk.post * 12)}</B>, {I.rankPost === n ? `the slowest of all ${n}` : `${nth(I.rankPost)} of ${n}`}
+            {years(uk.pre * 12)} months a year,{" "}
+            {Math.abs(vsAvg) < 0.3 ? "about the OECD average" : vsAvg > 0 ? `faster than the OECD average (${years(avg.pre * 12)})` : `slower than the OECD average (${years(avg.pre * 12)})`}
+            . From 2011 to 2019 that fell to <B>{years(uk.post * 12)}</B>, {I.post.joint ? "joint " : ""}
+            {nth(I.post.rank)} of {n}
             {slower.length ? `; only ${list(slower)} ${slower.length === 1 ? "was" : "were"} slower` : ""}.
           </>
         ),
-        note: `A pace of 12 months a year would add a year of life expectancy every year. Annual figures move with each winter's flu and summer's heat, so one country's pace is only a rough guide.`,
+        note: "Paces are the trend across each stretch's single years, which damps a good or bad year. A pace of 12 months a year would add a year of life expectancy every year.",
       }
     }
     case "tenths":
@@ -295,7 +305,8 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
             ONS counts a death under 75 as avoidable if its cause could mostly be prevented by public health measures or treated by timely
             healthcare. In {data.avoidable.now} the most deprived tenth averaged {Math.round(av[0].now)} such deaths per 100,000 {w.plural} a
             year, {ratio >= 1.95 && ratio < 2.05 ? "twice" : `${ratio.toFixed(1)} times`} the rate in the least deprived. Since{" "}
-            {data.avoidable.then} the rate has {avTrend(av)}.
+            {data.avoidable.then} the rate has {avTrendSized(av)}, so the gap between the ends widened from {Math.round(av[0].then - av[9].then)} to{" "}
+            {Math.round(av[0].now - av[9].now)} per 100,000.
           </>
         ),
         note: "Age-standardised rates. Since 2020 COVID-19 deaths count as preventable, which adds to the recent figures.",
@@ -311,7 +322,7 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
         body: (
           <>
             Early deaths are one measure; years in good health are another. Healthy life expectancy estimates the years lived in self-rated
-            good or very good health. {capital(w.plural)} in the least deprived tenth can expect{" "}
+            good or very good health. {capital(w.plural)} in the least deprived tenth of areas can expect{" "}
             <B>{years(h9.healthy - h0.healthy)} more healthy years</B> than those in the most deprived,{" "}
             {k >= 2 ? "more than twice" : `${k.toFixed(1)} times`} the {years(h9.life - h0.life)}-year gap in lifespan.
           </>
@@ -341,16 +352,17 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       const A = data.air
       const r = f.fit[sex].r
       const kids = data.factors[0].fit[sex].r
-      // Strength words for |r|: 0.8+ closely, 0.6+ clearly, 0.4+ loosely, below that barely.
-      const strength = Math.abs(r) >= 0.8 ? "closely" : Math.abs(r) >= 0.6 ? "clearly" : Math.abs(r) >= 0.4 ? "loosely" : "barely"
+      // Strength words for |r|: 0.8+ closely, 0.5+ clearly, 0.3+ loosely, below that weakly.
+      const strength = Math.abs(r) >= 0.8 ? "closely" : Math.abs(r) >= 0.5 ? "clearly" : Math.abs(r) >= 0.3 ? "loosely" : "weakly"
       const verb = /s$/.test(f.short) ? "line" : "lines"
       if (f.key === "airPollution")
         return {
           title: "Not everything lines up",
           body: (
             <>
-              Air pollution barely correlates (r = {signed(r, 2)}). {A.london === 30 ? "All 30" : A.london} areas with the highest burden are in
-              London. Their {w.plural} average {years(A[sex])} years, against {years(A.england[sex])} for England.
+              Air pollution barely lines up with life expectancy (r = {signed(r, 2)}). The 30 areas where it accounts for the largest share of
+              deaths are {A.london === 30 ? "all" : `${A.london} of them`} in London; the {A.withLe} with a figure average {years(A[sex])} years for{" "}
+              {w.plural}, against {years(A.england[sex])} for England.
             </>
           ),
           note: "A weak link between areas doesn't show air pollution is harmless; London's other advantages can mask it.",
@@ -360,8 +372,8 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
           title: "And the rest",
           body: (
             <>
-              The deprivation score lines up {strength} (r = {signed(r, 2)}), but it counts early deaths among its measures, so part of that
-              link is built in.
+              The deprivation score lines up {strength} with life expectancy (r = {signed(r, 2)}), partly by construction: it counts early
+              deaths.
             </>
           ),
           note: "Pick any circumstance to see how the same places spread out.",
@@ -458,7 +470,9 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
         return (a[sex][index.now] as number) - (a[sex][index.stall] as number)
       }
       const moveText = (v: number) =>
-        Math.abs(v) < 0.05 ? "barely moved" : `${v > 0 ? "gained" : "lost"} ${Math.abs(v) >= 1 ? `${years(Math.abs(v))} years` : monthsWord(v)}`
+        Math.abs(v) < 0.05
+          ? "barely moved"
+          : `${v > 0 ? "gained" : "lost"} ${Math.abs(Math.abs(v) - 1) < 0.05 ? "a year" : Math.abs(v) > 1 ? `${years(Math.abs(v))} years` : monthsWord(v)}`
       return {
         title: "Back where we began",
         body: (
@@ -469,7 +483,7 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
             Since {P[index.stall]} {pair.high.name} has {moveText(d(pair.high.code))}; {pair.low.name} has {moveText(d(pair.low.code))}.
           </>
         ),
-        note: "A single place's figure is uncertain by about ±0.6 years, so falls smaller than six months aren't counted.",
+        note: "Each figure is uncertain by about ±0.6 years, and a change between two periods by more, so some of these falls may be chance.",
       }
     }
   }
@@ -503,7 +517,9 @@ export function Methods({ data }: { data: FilmData }) {
       </p>
       <p>
         <B>International</B> figures are single calendar years from {data.intl.source} (fetched {data.intl.fetched}), for the{" "}
-        {data.intl.countries.length} OECD members. The OECD average is the unweighted mean of members.
+        {data.intl.countries.length} OECD members. The OECD average is the unweighted mean of members; Latvia&apos;s 2001 and
+        Türkiye&apos;s 2024 figures, not yet published, are filled from their nearest year. Paces are least-squares trends across
+        2001–11 and 2011–19. Ranks share a place when figures tie.
       </p>
       <p className="text-[12.5px] text-ink-3">
         ONS and OHID data are reused under the Open Government Licence v3.0; OECD data under CC BY 4.0. Hex map layout by Open Innovations
