@@ -224,20 +224,19 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       const n = I.rows.length
       const names = new Map(data.intl.countries.map((k) => [k.code, k.name]))
       const slower = I.slower.map((c) => names.get(c) ?? c)
+      const avg = I.averagePace
+      const vsAvg = uk.pre * 12 - avg.pre * 12
       return {
         title: "Slower than almost everyone",
         body: (
           <>
-            Each row is an OECD country: the ring is its pace from 2001 to 2011, the dot its pace from 2011 to 2019, before COVID-19. The UK
-            fell from {years(uk.pre * 12)} to <B>{years(uk.post * 12)} months a year</B>,{" "}
-            {I.rankPost === n ? `the slowest of the ${n}` : `${ordinal(I.rankPost)} of ${n}`}
-            {slower.length ? `; only ${list(slower)} ${slower.length === 1 ? "was" : "were"} slower` : ""}.{" "}
-            {I.rankDrop === 1
-              ? "No other country slowed as much."
-              : `Only ${words(I.rankDrop - 1)} ${I.rankDrop === 2 ? "country" : "countries"} slowed more.`}
+            How many months of life expectancy each country added per year, before and after 2011. From 2001 to 2011 UK {w.plural} gained{" "}
+            {years(uk.pre * 12)} months a year, {Math.abs(vsAvg) < 0.3 ? "about the OECD average" : vsAvg > 0 ? `faster than the OECD average (${years(avg.pre * 12)})` : `slower than the OECD average (${years(avg.pre * 12)})`}.
+            From 2011 to 2019 that fell to <B>{years(uk.post * 12)}</B>, {I.rankPost === n ? `the slowest of all ${n}` : `${nth(I.rankPost)} of ${n}`}
+            {slower.length ? `; only ${list(slower)} ${slower.length === 1 ? "was" : "were"} slower` : ""}.
           </>
         ),
-        note: "Annual figures move with each year's flu season and heat, so one country's pace is only a rough guide.",
+        note: `A pace of 12 months a year would add a year of life expectancy every year. Annual figures move with each winter's flu and summer's heat, so one country's pace is only a rough guide.`,
       }
     }
     case "tenths":

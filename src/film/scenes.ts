@@ -912,52 +912,72 @@ function rankChart(c: Ctx): Spec[] {
 function pace(c: Ctx): Spec[] {
   const P = c.data.intl[c.sex]
   const names = new Map(c.data.intl.countries.map((k) => [k.code, k.name]))
-  const rows = [...P.rows].sort((a, b) => b.post - a.post)
-  // Phones only name the UK and the two ends; the rest are too tight to label.
-  const g = rowGeo(c, rows.length, { top: 58, bottom: 40, right: c.narrow ? 10 : 40, labelW: c.narrow ? 70 : 118 })
-  const lo = Math.min(0, Math.floor(Math.min(...rows.flatMap((r) => [r.pre, r.post])) * 12))
+  // The UK, the OECD average and the named members; the full table is the previous scene.
+  const rows = [
+    ...P.rows.filter((r) => shown(r.code)),
+    { code: "OECD", pre: P.averagePace.pre, post: P.averagePace.post },
+  ].sort((a, b) => b.post - a.post)
+  const colW = c.narrow ? 44 : 64
+  const g = rowGeo(c, rows.length, { top: 70, bottom: 44, right: colW * 2 + 20, labelW: c.narrow ? 84 : 132 })
   const hi = Math.ceil(Math.max(...rows.flatMap((r) => [r.pre, r.post])) * 12)
+  const lo = Math.min(0, Math.floor(Math.min(...rows.flatMap((r) => [r.pre, r.post])) * 12))
   const x = scaleLinear().domain([lo, hi]).range([g.left, g.right])
-  const dot = clamp(g.rowH * 0.62, 4, 9)
+  const colPre = c.box.x + c.box.w - colW - 12
+  const colPost = c.box.x + c.box.w
+  const dot = c.narrow ? 10 : 13
   const specs: Spec[] = []
   rows.forEach((r, i) => {
     const uk = r.code === "GBR"
+    const avg = r.code === "OECD"
+    const colour = uk ? INK : avg ? INK_3 : FAMILIAR[r.code]
     const y = g.y(i)
     const pre = x(r.pre * 12)
     const post = x(r.post * 12)
-    const delay = i * 22
-    const named = !c.narrow || uk || i === 0 || i === rows.length - 1
+    const slowed = r.post < r.pre
+    const delay = i * 50
+    const name = uk ? (c.narrow ? "UK" : "United Kingdom") : avg ? (c.narrow ? "OECD avg" : "OECD average") : (names.get(r.code) ?? r.code)
+    const head = uk ? "uk:head" : avg ? "oecd:head" : `ch:${r.code}`
+    // An arrow from the earlier pace to the later one: the shaft stops short of the dot, which is the arrowhead.
+    const dir = post < pre ? 1 : -1
     specs.push(
-      txt(`pc:${r.code}:name`, g.left - 12, y, uk ? (c.narrow ? "UK" : "United Kingdom") : (names.get(r.code) ?? r.code), {
-        align: "right",
-        size: c.narrow ? 10 : Math.min(11.5, g.rowH * 0.78),
-        weight: uk ? 700 : FAMILIAR[r.code] ? 600 : 400,
-        color: uk ? INK : (FAMILIAR[r.code] ?? INK_2),
-        alpha: named ? 1 : 0,
-        delay,
+      txt(`pc:${r.code}:name`, g.left - 16, y, name, { align: "right", size: c.narrow ? 11 : 13, weight: uk ? 700 : 600, color: colour, delay }),
+      line(`pc:${r.code}:link`, pre, y, post + (dot / 2 + 2) * dir, y, {
+        color: uk ? BRICK : colour,
+        width: uk ? 3 : 2,
+        alpha: uk ? 1 : 0.55,
+        dash: avg ? [4, 3] : undefined,
+        layer: 2,
+        enter: "draw",
+        enterDelay: 700 + delay,
+        dur: 900,
       }),
-      line(`pc:${r.code}:link`, pre, y, post, y, { color: uk ? BRICK : LINE, width: uk ? 2.5 : 1.5, layer: 2, delay: delay + 500, enter: "draw", dur: 700 }),
-      mark(`pc:${r.code}:pre`, pre, y, uk ? dot + 2 : dot, "none", { stroke: uk ? INK : INK_4, strokeW: 1.25, layer: 4, delay, enterDelay: 350 + delay }),
-      mark(uk ? "uk:head" : `ch:${r.code}`, post, y, uk ? dot + 3 : dot, uk ? BRICK : (FAMILIAR[r.code] ?? INK_4), { stroke: uk ? PAPER : undefined, strokeW: uk ? 2 : 0, layer: 5, delay, dur: 1200 })
+      mark(`pc:${r.code}:pre`, pre, y, dot, PAPER, { stroke: colour, strokeW: 1.75, layer: 4, enterDelay: 350 + delay }),
+      mark(head, post, y, dot + (uk ? 2 : 0), uk ? BRICK : colour, { stroke: PAPER, strokeW: 1.5, layer: 5, delay, dur: 1200 }),
+      txt(`pc:${r.code}:v0`, colPre, y, years(r.pre * 12), { align: "right", size: c.narrow ? 11 : 12.5, color: INK_3, enterDelay: 900 + delay }),
+      txt(`pc:${r.code}:v1`, colPost, y, years(r.post * 12), {
+        align: "right",
+        size: c.narrow ? 11.5 : 13,
+        weight: 700,
+        color: uk ? BRICK : slowed ? INK : TEAL,
+        enterDelay: 1100 + delay,
+      })
     )
-    if (uk) {
-      specs.push(
-        mark("pc:uk:band", (g.left + g.right) / 2, y, g.right - g.left + 16, INK, { h: g.rowH, rad: 3, alpha: 0.06, layer: 0, arc: 0, enter: "fade" }),
-        txt("pc:uk:pre", pre + (pre > post ? 10 : -10), y, years(r.pre * 12), { align: pre > post ? "left" : "right", size: 11.5, weight: 700, color: INK, halo: true, delay: 900 }),
-        txt("pc:uk:post", post + (pre > post ? -12 : 12), y, years(r.post * 12), { align: pre > post ? "right" : "left", size: 11.5, weight: 700, color: BRICK, halo: true, delay: 900 })
-      )
-    }
+    if (uk) specs.push(mark("pc:uk:band", (c.box.x + c.box.x + c.box.w) / 2, y, c.box.w + 16, INK, { h: g.rowH * 0.9, rad: 6, alpha: 0.05, layer: 0, arc: 0, enter: "fade" }))
   })
   const axisY = g.bottom + 22
-  specs.push(...xTicks("mo", x, Array.from({ length: hi - lo + 1 }, (_, i) => lo + i), axisY, { grid: [g.top - 6, g.bottom] }))
+  specs.push(...xTicks("mo", x, Array.from({ length: hi - lo + 1 }, (_, i) => lo + i), axisY, { grid: [g.top - 10, g.bottom] }))
   specs.push(txt("mo:title", g.right, axisY + 20, "Months of life expectancy gained per year →", { align: "right", size: 10.5 }))
-  const keyY = g.top - 34
+  // Column heads for the two paces.
+  const headY = g.top - 30
   specs.push(
-    txt(`pace:title:${c.sex}`, c.box.x, keyY - 18, `${who(c.sex)} · pace of gains · ${rows.length} OECD countries`, { size: 10, caps: true, weight: 600 }),
-    mark("pace:k1", g.left + 5, keyY + 4, 9, "none", { stroke: INK_3, strokeW: 1.5, arc: 0, layer: 8 }),
-    txt("pace:k1t", g.left + 15, keyY + 4, "2001–11", { size: 11, color: INK_2 }),
-    mark("pace:k2", g.left + 84, keyY + 4, 9, INK_4, { arc: 0, layer: 8 }),
-    txt("pace:k2t", g.left + 94, keyY + 4, c.narrow ? "2011–19" : "2011–19, before COVID-19", { size: 11, color: INK_2 })
+    txt(`pace:title:${c.sex}`, c.box.x, headY - 28, `${who(c.sex)} · how fast life expectancy rose, before and after 2011`, { size: 10, caps: true, weight: 600 }),
+    mark("pace:k1", g.left + 6, headY, 11, PAPER, { stroke: INK_3, strokeW: 1.75, arc: 0, layer: 8 }),
+    txt("pace:k1t", g.left + 17, headY, "2001–11", { size: 11.5, color: INK_2 }),
+    line("pace:karrow", g.left + 78, headY, g.left + 104, headY, { width: 2, color: INK_3, layer: 8 }),
+    mark("pace:k2", g.left + 110, headY, 11, INK_3, { arc: 0, layer: 8 }),
+    txt("pace:k2t", g.left + 121, headY, c.narrow ? "2011–19" : "2011–19, before COVID-19", { size: 11.5, color: INK_2 }),
+    txt("pace:c1", colPre, headY, "2001–11", { align: "right", size: 10, caps: true, weight: 600 }),
+    txt("pace:c2", colPost, headY, "2011–19", { align: "right", size: 10, caps: true, weight: 600, color: INK })
   )
   return specs
 }

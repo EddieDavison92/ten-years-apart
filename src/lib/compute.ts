@@ -132,15 +132,18 @@ function peers(intl: Intl) {
       order.sort((a, b) => b.v - a.v).forEach((d, r) => (ranks[d.k][i] = r + 1))
       return order.length
     })
+    const avg = average(sex)
     return {
       rows,
+      /** The OECD average's own pace, from the unweighted mean series. */
+      averagePace: { pre: pace(avg, 2001, 2011), post: pace(avg, 2011, 2019) },
       ranks,
       reporting,
       rankPre: rank((r) => r.pre),
       rankPost: rank((r) => r.post),
       rankDrop: rank((r) => r.pre - r.post),
       slower: rows.filter((r) => r.post < uk.post).map((r) => r.code),
-      average: average(sex),
+      average: avg,
     }
   }
   return { years: intl.years, countries: intl.countries, male: bySex("male"), female: bySex("female"), source: intl.meta.source, fetched: intl.meta.fetched }
