@@ -27,6 +27,8 @@ type Common = {
   /** Delay used instead of `delay` when the node is new. */
   enterDelay?: number
   dur?: number
+  /** Duration used instead of `dur` when the node is new. */
+  enterDur?: number
   ease?: EaseName
   enter?: Enter
   /** How the node leaves when a later scene drops it. */
@@ -321,7 +323,7 @@ export class Engine {
       n.fromPts = n.toPts.slice()
       n.curPts = n.toPts.slice()
     }
-    this.timing(n, { ...s, delay: s.enterDelay ?? s.delay }, now)
+    this.timing(n, { ...s, delay: s.enterDelay ?? s.delay, dur: s.enterDur ?? s.dur }, now)
     n.arc = s.kind === "mark" ? (s.arc ?? hash(s.id) * 0.18) : 0
     this.nodes.set(s.id, n)
     this.dirtyOrder = true

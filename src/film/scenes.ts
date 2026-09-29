@@ -258,29 +258,33 @@ function open(c: Ctx): Spec[] {
   const mid = box.y + box.h * 0.46
   const gap = c.narrow ? 70 : 92
   const DRAW = 2400
+  // Lines are keyed by role, not place, so switching sex morphs the same two lines to the other pair.
   const rows = [
-    { a: hi, v: hv, y: mid - gap / 2, colour: TEAL, delay: 250 },
-    { a: lo, v: lv, y: mid + gap / 2, colour: BRICK, delay: 650 },
+    { a: hi, role: "high", v: hv, y: mid - gap / 2, colour: TEAL, delay: 250 },
+    { a: lo, role: "low", v: lv, y: mid + gap / 2, colour: BRICK, delay: 650 },
   ]
+  // A first draw is slow; later moves (a new sex) take MOVE ms, and the gap moves with them.
+  const MOVE = 1200
   const specs: Spec[] = []
   for (const r of rows) {
     const i = areaIndex(c, r.a.code)
     specs.push(
-      line(`life:${r.a.code}`, x(0), r.y, x(r.v), r.y, { color: r.colour, width: c.narrow ? 3 : 4, enter: "draw", dur: DRAW, enterDelay: r.delay, layer: 2 }),
-      mark(`born:${r.a.code}`, x(0), r.y, c.narrow ? 7 : 9, r.colour, { enterDelay: r.delay, dur: 500, layer: 3 }),
+      line(`life:${r.role}`, x(0), r.y, x(r.v), r.y, { color: r.colour, width: c.narrow ? 3 : 4, enter: "draw", dur: MOVE, enterDur: DRAW, enterDelay: r.delay, layer: 2 }),
+      mark(`born:${r.role}`, x(0), r.y, c.narrow ? 7 : 9, r.colour, { enterDelay: r.delay, dur: 500, layer: 3 }),
       // Line tips ride the lines as they draw; the swarm's dots split out of them.
-      mark(`tip:${r.a.code}`, x(r.v), r.y, c.narrow ? 14 : 18, r.colour, {
+      mark(`tip:${r.role}`, x(r.v), r.y, c.narrow ? 14 : 18, r.colour, {
         hit: i,
         enter: { x: x(0), w: c.narrow ? 14 : 18, alpha: 0 },
         enterDelay: r.delay,
-        dur: DRAW,
+        dur: MOVE,
+        enterDur: DRAW,
         arc: 0,
         stroke: PAPER,
         strokeW: 2.5,
         layer: 4,
       }),
-      txt(`name:${r.a.code}`, x(0), r.y - (c.narrow ? 18 : 22), r.a.name, { size: c.narrow ? 13 : 15, weight: 600, color: INK, enterDelay: r.delay, enter: "rise" }),
-      txt(`val:${r.a.code}`, x(r.v) + (c.narrow ? 13 : 17), r.y + 1, "", {
+      txt(`name:${r.role}:${r.a.code}`, x(0), r.y - (c.narrow ? 18 : 22), r.a.name, { size: c.narrow ? 13 : 15, weight: 600, color: INK, enterDelay: r.delay, enter: "rise" }),
+      txt(`val:${r.role}`, x(r.v) + (c.narrow ? 13 : 17), r.y + 1, "", {
         value: r.v,
         format: (v) => years(v),
         size: c.narrow ? 20 : 27,
@@ -288,7 +292,8 @@ function open(c: Ctx): Spec[] {
         color: INK,
         enter: { x: x(0) + (c.narrow ? 13 : 17), value: 0, alpha: 0 },
         enterDelay: r.delay,
-        dur: DRAW,
+        dur: MOVE,
+        enterDur: DRAW,
       })
     )
   }
@@ -298,11 +303,11 @@ function open(c: Ctx): Spec[] {
   const cx = (x(lv) + x(hv)) / 2
   const after = DRAW + 800
   specs.push(
-    mark("gap:band", cx, (top + bottom) / 2, x(hv) - x(lv), INK, { h: bottom - top, rad: 6, alpha: 0.06, layer: 0, enter: "fade", enterDelay: after, dur: 900, arc: 0 }),
-    line("gap:guide", x(lv), rows[0].y - 10, x(lv), rows[1].y - 12, { dash: [2, 4], alpha: 0.55, enter: "draw", enterDelay: after, dur: 700 }),
-    line("gap:br", x(lv), bottom + 12, x(hv), bottom + 12, { width: 1.25, enter: "draw", enterDelay: after + 200, dur: 800 }),
-    line("gap:brL", x(lv), bottom + 6, x(lv), bottom + 18, { width: 1.25, enterDelay: after + 200 }),
-    line("gap:brR", x(hv), bottom + 6, x(hv), bottom + 18, { width: 1.25, enterDelay: after + 200 }),
+    mark("gap:band", cx, (top + bottom) / 2, x(hv) - x(lv), INK, { h: bottom - top, rad: 6, alpha: 0.06, layer: 0, enter: "fade", enterDelay: after, dur: MOVE, arc: 0 }),
+    line("gap:guide", x(lv), rows[0].y - 10, x(lv), rows[1].y - 12, { dash: [2, 4], alpha: 0.55, enter: "draw", enterDelay: after, dur: MOVE, enterDur: 700 }),
+    line("gap:br", x(lv), bottom + 12, x(hv), bottom + 12, { width: 1.25, enter: "draw", enterDelay: after + 200, dur: MOVE, enterDur: 800 }),
+    line("gap:brL", x(lv), bottom + 6, x(lv), bottom + 18, { width: 1.25, enterDelay: after + 200, dur: MOVE }),
+    line("gap:brR", x(hv), bottom + 6, x(hv), bottom + 18, { width: 1.25, enterDelay: after + 200, dur: MOVE }),
     txt("gap:label", cx, bottom + 38, "", {
       value: hv - lv,
       format: (v) => `${years(v)} years`,
@@ -312,7 +317,8 @@ function open(c: Ctx): Spec[] {
       align: "center",
       enter: { value: 0 },
       enterDelay: after + 400,
-      dur: 1100,
+      dur: MOVE,
+      enterDur: 1100,
     })
   )
   // Age axis.
@@ -364,7 +370,7 @@ function swarm(c: Ctx): Spec[] {
     specs.push(
       mark(`a:${a.code}`, p.x, p.y, special ? r * 2 + 2 : r * 2, gapColour(value(a, c), uk), {
         hit: i,
-        enter: special ? { from: `tip:${a.code}` } : "grow",
+        enter: special ? { from: `tip:${a.code === low ? "low" : "high"}` } : "grow",
         stroke: special ? INK : undefined,
         strokeW: special ? 1.25 : 0,
         delay: ((p.x - box.x) / box.w) * 300,
