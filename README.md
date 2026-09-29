@@ -4,7 +4,7 @@ An animated companion to [Ten years apart](https://life-expectancy-uk.vercel.app
 
 ## Story
 
-Eight chapters, 21 scenes: the gap between places, the stall after 2011, the UK among OECD countries, the split by deprivation, healthy years, local circumstances, the two extremes, and the map again.
+Eight chapters, 22 scenes: the gap between places, the stall after 2011, the UK among OECD countries, the split by deprivation, healthy years, local circumstances, the two extremes, and the map again.
 
 ## Controls
 

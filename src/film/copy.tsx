@@ -201,6 +201,26 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
         note: "OECD Health Statistics, single calendar years. The average is the unweighted mean of members, with Latvia's 2001 and Türkiye's 2024 filled from their nearest year. UK figures differ slightly from the ONS three-year estimates used elsewhere.",
       }
     }
+    case "room": {
+      const P = data.intl[sex]
+      const names = new Map(data.intl.countries.map((k) => [k.code, k.name]))
+      const uk = P.start.find((d) => d.code === "GBR")!
+      const expected = P.startFit.intercept + P.startFit.slope * uk.start
+      const less = P.nearLess.map((c) => names.get(c) ?? c)
+      return {
+        title: "Room to grow",
+        body: (
+          <>
+            Each dot is an OECD member: across, its life expectancy in 2011; up, what it gained by 2019. Countries that started lower
+            gained more, about {years(Math.abs(P.startFit.slope), 1)} years less for each year of head start. For a country starting
+            where the UK did, the line expects {years(expected)}; UK {w.plural} gained <B>{years(uk.gain)}</B>. Of the {P.nearCount} members
+            that started within a year of the UK,{" "}
+            {less.length === 0 ? "none gained less" : `only ${list(less)} gained less`}.
+          </>
+        ),
+        note: `Gains are the trend across 2011–19, which damps a single good or bad year. The dashed line is a least-squares fit (r = ${signed(P.startFit.r, 2)}), so it describes the pattern, not a target.`,
+      }
+    }
     case "rank": {
       const I = data.intl
       const k = I.countries.findIndex((c) => c.code === "GBR")
@@ -237,17 +257,14 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       const g19 = gain(ukv, i19)
       const gL = gain(ukv, last)
       const avg = I[sex].average
-      const names = new Map(I.countries.map((k) => [k.code, k.name]))
-      // Members that gained less than the UK by 2019, before COVID-19; changes within 0.05 years count as equal.
-      const less = I.countries.filter((k) => k.code !== "GBR" && gain(k[sex], i19) < g19 - 0.05).map((k) => names.get(k.code) ?? k.code)
       return {
         title: "Since 2011",
         body: (
           <>
             Slide every line so it passes through zero in 2011. To the left, each country climbs to its 2011 level; to the right is what
             it has gained since. By 2019 UK {w.plural} had gained <B>{years(g19)} years</B>, against {years(avg[i19] - avg[i11])} for the OECD
-            average; {less.length === 0 ? "no member gained less" : `only ${list(less)} gained less`}. By {Y[last]} the UK was{" "}
-            {years(Math.abs(gL))} years {gL >= 0 ? "above" : "below"} its 2011 level.
+            average, and by {Y[last]} they were {years(Math.abs(gL))} years {gL >= 0 ? "above" : "below"} their 2011 level. But a
+            country that started lower had more room to rise.
           </>
         ),
         note: "2019 is the last year before COVID-19. Single calendar years from OECD Health Statistics.",

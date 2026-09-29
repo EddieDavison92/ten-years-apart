@@ -575,6 +575,45 @@ function spread<T extends { y: number }>(labels: T[], gap: number, hi = Infinity
   return sorted
 }
 
+type Rect = { x0: number; y0: number; x1: number; y1: number }
+type Placeable = { id: string; x: number; y: number; r: number; lines: { text: string; size: number; weight: number; colour: string }[]; delay?: number }
+
+/**
+ * Places labels beside their dots without overprinting: each tries right, left, above, then below,
+ * avoiding labels already placed and the given obstacles (other dots). Earlier items win.
+ */
+function placeLabels(items: Placeable[], obstacles: Rect[], bounds: Rect): Spec[] {
+  const placed: Rect[] = []
+  const outside = (r: Rect) => r.x0 < bounds.x0 || r.x1 > bounds.x1 || r.y0 < bounds.y0 || r.y1 > bounds.y1
+  // Off-screen is ruled out; otherwise fewer overlaps win, with labels counting more than dots.
+  const cost = (r: Rect) =>
+    outside(r)
+      ? Infinity
+      : placed.filter((o) => r.x0 < o.x1 && r.x1 > o.x0 && r.y0 < o.y1 && r.y1 > o.y0).length * 10 +
+        obstacles.filter((o) => r.x0 < o.x1 && r.x1 > o.x0 && r.y0 < o.y1 && r.y1 > o.y0).length
+  const specs: Spec[] = []
+  for (const it of items) {
+    const w = Math.max(...it.lines.map((l) => textWidth(l.text, l.size, l.weight))) + 2
+    const h = it.lines.reduce((a, l) => a + l.size + 3, 0)
+    const gap = it.r + 5
+    const options: { rect: Rect; align: CanvasTextAlign; x: number; top: number }[] = [
+      { rect: { x0: it.x + gap, y0: it.y - h / 2, x1: it.x + gap + w, y1: it.y + h / 2 }, align: "left", x: it.x + gap, top: it.y - h / 2 },
+      { rect: { x0: it.x - gap - w, y0: it.y - h / 2, x1: it.x - gap, y1: it.y + h / 2 }, align: "right", x: it.x - gap, top: it.y - h / 2 },
+      { rect: { x0: it.x - w / 2, y0: it.y - gap - h, x1: it.x + w / 2, y1: it.y - gap }, align: "center", x: it.x, top: it.y - gap - h },
+      { rect: { x0: it.x - w / 2, y0: it.y + gap, x1: it.x + w / 2, y1: it.y + gap + h }, align: "center", x: it.x, top: it.y + gap },
+    ]
+    const pick = options.reduce((best, o) => (cost(o.rect) < cost(best.rect) ? o : best))
+    placed.push(pick.rect)
+    let ty = pick.top
+    it.lines.forEach((l, k) => {
+      ty += (l.size + 3) / 2
+      specs.push(txt(`${it.id}:${k}`, pick.x, ty, l.text, { align: pick.align, size: l.size, weight: l.weight, color: l.colour, halo: true, enterDelay: it.delay ?? 1500 }))
+      ty += (l.size + 3) / 2
+    })
+  }
+  return specs
+}
+
 type Stage = "rewind" | "gains" | "flat" | "covid" | "pair"
 
 function stallChart(c: Ctx, stage: Stage): Spec[] {
@@ -880,6 +919,98 @@ function peers(c: Ctx): Spec[] {
       txt(l.id, x(t) + 12, l.y, "", { value: l.value, format: (v) => `${l.name} ${years(v)}`, size: c.narrow ? 11 : 12.5, weight: l.weight, color: l.colour, halo: true, enterDelay: 500 })
     )
   specs.push(ghostYear(c, x(0) + 6, intl.years.map(String)))
+  return specs
+}
+
+/**
+ * Where each member started in 2011 against what it gained by 2019. Countries that started lower
+ * had more room to grow; the line is the least-squares fit, and the band holds members that
+ * started within a year of the UK.
+ */
+function room(c: Ctx): Spec[] {
+  const I = c.data.intl
+  const { sex, box } = c
+  const P = I[sex]
+  const pts = P.start
+  const left = box.x + (c.narrow ? 30 : 44)
+  const right = box.x + box.w - (c.narrow ? 10 : 40)
+  const top = box.y + 30
+  const bottom = box.y + box.h - 40
+  const xs = pts.map((d) => d.start)
+  const ys = pts.map((d) => d.gain)
+  const x = scaleLinear().domain([Math.min(...xs) - 0.5, Math.max(...xs) + 0.5]).nice().range([left, right])
+  const y = scaleLinear().domain([Math.min(0, ...ys) - 0.2, Math.max(...ys) + 0.2]).nice().range([bottom, top])
+  const specs: Spec[] = []
+  for (const v of y.ticks(6)) {
+    specs.push(line(`rm:yg:${v}`, left - 6, y(v), right, y(v), { color: LINE, alpha: v === 0 ? 0 : 0.9, layer: 0, enterDelay: TICK_WAIT }))
+    specs.push(txt(`rm:y:${v}`, left - 12, y(v), v === 0 ? "0" : signed(v, 0), { align: "right", enterDelay: TICK_WAIT }))
+  }
+  for (const v of x.ticks(c.narrow ? 4 : 7)) specs.push(txt(`rm:x:${v}`, x(v), bottom + 20, String(v), { align: "center", enterDelay: TICK_WAIT }))
+  specs.push(
+    line("rm:zero", left - 6, y(0), right, y(0), { width: 1.25, alpha: 0.6, layer: 1, enter: "draw", enterDelay: 300 }),
+    txt(`yt:room:${sex}`, left - 12, top - 26, c.narrow ? `${who(sex)} · gained 2011–19` : `${who(sex)} · years of life expectancy gained, 2011 to 2019`, { size: 10, caps: true, weight: 600 }),
+    txt("rm:xt", right, bottom + 40, "Life expectancy in 2011, years →", { align: "right", size: 10.5 })
+  )
+  const uk = pts.find((d) => d.code === "GBR")!
+  // The band of similar starting points.
+  specs.push(
+    mark("rm:band", x(uk.start), (top + bottom) / 2, x(uk.start + 1) - x(uk.start - 1), INK, { h: bottom - top, rad: 4, alpha: 0.05, layer: 0, arc: 0, enter: "fade", enterDelay: 900 }),
+    txt("rm:bandlab", x(uk.start), top + 12, c.narrow ? "Within a year of the UK" : "Started within a year of the UK", { align: "center", size: 10, caps: true, weight: 600, enterDelay: 1000 })
+  )
+  // The fit across the observed range.
+  const f = P.startFit
+  const [x0, x1] = [Math.min(...xs), Math.max(...xs)]
+  specs.push(line("rm:fit", x(x0), y(f.intercept + f.slope * x0), x(x1), y(f.intercept + f.slope * x1), { width: 2, alpha: 0.5, dash: [6, 4], layer: 2, enter: "draw", enterDelay: 1300, dur: 1000 }))
+  if (!c.narrow)
+    specs.push(
+      txt("rm:fitlab", x(x0) + 6, y(f.intercept + f.slope * x0) - 14, "Average for each starting level", { size: 10.5, color: INK_3, halo: true, enterDelay: 2000 })
+    )
+  // The UK against the line.
+  const expected = f.intercept + f.slope * uk.start
+  specs.push(
+    // A tick from the UK's dot up to the line: how far below the average for its starting level it gained.
+    line("rm:short", x(uk.start), y(expected), x(uk.start), y(uk.gain) - 8, { width: 2, color: BRICK, layer: 7, enter: "draw", enterDelay: 2100, dur: 600 }),
+    mark("rm:expected", x(uk.start), y(expected), 7, PAPER, { stroke: BRICK, strokeW: 1.75, layer: 7, enterDelay: 2000, arc: 0 })
+  )
+  // Countries: the same heads as the line charts, landing at their start and gain.
+  const labels: Placeable[] = []
+  const dots: Rect[] = []
+  I.countries.forEach((k, i) => {
+    const d = pts[i]
+    const isUk = k.code === "GBR"
+    const st = countryStyle(k.code)
+    const px = x(d.start)
+    const py = y(d.gain)
+    const near = Math.abs(d.start - uk.start) <= 1
+    specs.push(
+      mark(isUk ? "uk:head" : `ch:${k.code}`, px, py, isUk ? 14 : FAMILIAR[k.code] ? 10 : 8, isUk ? INK : FAMILIAR[k.code] ? st.colour : near ? INK_3 : INK_4, {
+        hit: COUNTRY_HIT + i,
+        stroke: PAPER,
+        strokeW: isUk ? 2.5 : 1.25,
+        alpha: isUk || FAMILIAR[k.code] || near ? 1 : 0.75,
+        layer: isUk ? 8 : 5,
+        delay: ((px - left) / (right - left)) * 300,
+        enterDelay: 300 + ((px - left) / (right - left)) * 600,
+        dur: 1200,
+      })
+    )
+    const rad = isUk ? 7 : FAMILIAR[k.code] ? 5 : 4
+    dots.push({ x0: px - rad, y0: py - rad, x1: px + rad, y1: py + rad })
+    if (isUk)
+      labels.unshift({
+        id: "rml:GBR",
+        x: px,
+        y: py,
+        r: 7,
+        delay: 2200,
+        lines: [
+          { text: `United Kingdom ${signed(d.gain)}`, size: c.narrow ? 11.5 : 12.5, weight: 700, colour: INK },
+          { text: `${years(expected - d.gain)} below the line`, size: c.narrow ? 10.5 : 11.5, weight: 600, colour: BRICK },
+        ],
+      })
+    else if (FAMILIAR[k.code] && !c.narrow) labels.push({ id: `rml:${k.code}`, x: px, y: py, r: 5, lines: [{ text: k.name, size: 11, weight: 600, colour: st.colour }] })
+  })
+  specs.push(...placeLabels(labels, dots, { x0: box.x - 30, y0: box.y, x1: c.W - 6, y1: box.y + box.h }))
   return specs
 }
 
@@ -1611,6 +1742,7 @@ export const SCENES: SceneDef[] = [
   { id: "covid", chapter: 1, time: { from: "precovid", to: "now", ms: 3000, delay: 300 }, build: (c) => stallChart(c, "covid"), aria: () => "COVID-19 and the shortfall against the earlier trend" },
   { id: "peers", chapter: 2, time: { from: 0, to: "now", ms: 6000, delay: 500, axis: "years" }, build: peers, aria: () => "UK life expectancy among OECD countries, 2001 onwards" },
   { id: "pinned", chapter: 2, time: { from: "now", to: "now", ms: 0, axis: "years" }, build: pinned, aria: () => "Life expectancy against each country's 2011 level" },
+  { id: "room", chapter: 2, build: room, aria: () => "Life expectancy in 2011 against the gain to 2019, OECD countries" },
   { id: "rank", chapter: 2, time: { from: "now", to: "now", ms: 0, axis: "years" }, build: rankChart, aria: () => "Rank of each OECD country by life expectancy, 2001 onwards" },
   { id: "tenths", chapter: 3, build: (c) => tenths(c, "level"), aria: () => "English local authorities in ten deprivation groups" },
   { id: "moved", chapter: 3, build: (c) => tenths(c, "change"), aria: () => "Change in life expectancy since 2011–13 by deprivation group" },

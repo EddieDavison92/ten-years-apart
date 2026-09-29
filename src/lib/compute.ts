@@ -114,6 +114,8 @@ function peers(intl: Intl) {
   const at = (y: number) => intl.years.indexOf(y)
   // Differences smaller than this count as ties: the data is published to one decimal place.
   const EPS = 1e-6
+  /** "Started at a similar level": within a year of the UK's 2011 life expectancy. */
+  const NEAR = 1
   const slope = (v: (number | null)[], from: number, to: number) => {
     const pts: { x: number; y: number }[] = []
     for (let i = at(from); i <= at(to); i += 1) if (v[i] !== null) pts.push({ x: intl.years[i], y: v[i] as number })
@@ -153,7 +155,18 @@ function peers(intl: Intl) {
       return list.length
     })
     const avg = average(sex)
+    // Starting point: life expectancy in 2011 against the trend gain to 2019. Countries that start
+    // lower tend to gain more, so the UK is also compared with members that started within a year of it.
+    const start = intl.countries.map((c) => ({ code: c.code, start: c[sex][at(2011)] as number, gain: slope(c[sex], 2011, 2019) * 8 }))
+    const startFit = linearFit(start.map((d) => ({ x: d.start, y: d.gain })))
+    const ukStart = start.find((d) => d.code === "GBR")!
+    const near = start.filter((d) => d.code !== "GBR" && Math.abs(d.start - ukStart.start) <= NEAR)
     return {
+      start,
+      startFit,
+      /** Members within NEAR years of the UK in 2011 that gained less by 2019. */
+      nearLess: near.filter((d) => d.gain < ukStart.gain - EPS).map((d) => d.code),
+      nearCount: near.length + 1,
       rows,
       /** The OECD average's own pace, from the mean series. */
       averagePace: { pre: slope(avg, 2001, 2011), post: slope(avg, 2011, 2019) },
