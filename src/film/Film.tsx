@@ -654,8 +654,14 @@ function Rail({
 }) {
   const hold = holdFor(SCENES[index])
   const groups = CHAPTERS.map((name, ci) => ({ name, ci, scenes: SCENES.map((s, i) => ({ s, i })).filter(({ s }) => s.chapter === ci) }))
-  // Every chapter name fits only on very wide screens; otherwise the current chapter is named and the rest numbered.
-  const names = W >= 1680
+  // Chapter labels are 11px caps with 0.12em tracking: about 8px a character. Every name shows only if all fit;
+  // otherwise the current chapter keeps its full name at its natural width and the rest show numerals.
+  const labelW = (ci: number) => `${ROMAN[ci]} ${CHAPTERS[ci]}`.length * 8 + 8
+  const avail = W - lay.side * 2 - 36 - 150 - 16 * 3
+  const need = groups.reduce((a, g) => a + Math.max(labelW(g.ci), g.scenes.length * 14), 0) + 16 * (groups.length - 1)
+  const names = need <= avail
+  // Phones get the current chapter's name over a slim progress bar; the arrows and swiping do the moving.
+  const phone = lay.mode === "stacked" && lay.narrow
   const segment = (i: number) => (
     <button
       key={i}
@@ -689,8 +695,17 @@ function Rail({
       {lay.mode === "wide" ? (
         <ol className="flex min-w-0 flex-1 gap-4">
           {groups.map((g) => (
-            // Single-scene chapters still need room for their names.
-            <li key={g.name} className="min-w-0" style={{ flex: `${Math.max(g.scenes.length, g.ci === chapter ? 3.4 : names ? 2.4 : 1)} 1 0` }}>
+            <li
+              key={g.name}
+              className="min-w-0"
+              style={{
+                flex: names
+                  ? `${g.scenes.length} 1 ${labelW(g.ci)}px`
+                  : g.ci === chapter
+                    ? `0 0 ${Math.max(labelW(g.ci), g.scenes.length * 22)}px`
+                    : `${g.scenes.length} 1 0`,
+              }}
+            >
               <button
                 type="button"
                 onClick={() => onGo(g.scenes[0].i)}
@@ -704,6 +719,22 @@ function Rail({
             </li>
           ))}
         </ol>
+      ) : phone ? (
+        <div className="min-w-0 flex-1" aria-hidden>
+          <p className="kicker truncate !text-ink">
+            <span className="mr-1.5">{ROMAN[chapter]}</span>
+            {CHAPTERS[chapter]}
+          </p>
+          <div className="mt-1.5 flex gap-[2px]">
+            {SCENES.map((_, i) => (
+              <span key={i} className={cn("relative h-[3px] flex-1 overflow-hidden rounded-full", i < index ? "bg-ink/45" : i === index ? "bg-ink/15" : "bg-ink/10")}>
+                {i === index ? (
+                  <span key={`${i}:${playing}`} className="absolute inset-0 origin-left rounded-full bg-ink" style={playing ? { animation: `grow ${hold}ms linear both` } : undefined} />
+                ) : null}
+              </span>
+            ))}
+          </div>
+        </div>
       ) : (
         <div className="flex min-w-0 flex-1 gap-[3px]">{SCENES.map((_, i) => segment(i))}</div>
       )}
