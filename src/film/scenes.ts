@@ -1584,6 +1584,21 @@ function scatter(c: Ctx): Spec[] {
       enterDelay: 1500,
     })
   )
+  // A small −1 to +1 scale beside r, so its sign and strength read at a glance; the marker slides between circumstances.
+  if (!c.narrow) {
+    const sx1 = right - 104
+    const sx0 = sx1 - 120
+    const sx = (v: number) => sx0 + ((v + 1) / 2) * (sx1 - sx0)
+    const sy = top - 26
+    specs.push(
+      line("r:scale", sx0, sy, sx1, sy, { color: LINE, width: 2, layer: 7, enter: "draw", enterDelay: 1500 }),
+      ...[-1, 0, 1].map((v) => line(`r:tick:${v}`, sx(v), sy - 4, sx(v), sy + 4, { color: INK_4, width: 1.25, layer: 7, enterDelay: 1500 })),
+      txt("r:lo", sx(-1), sy + 13, "−1", { align: "center", size: 9.5, enterDelay: 1600 }),
+      txt("r:mid", sx(0), sy + 13, "0 no link", { align: "center", size: 9.5, enterDelay: 1600 }),
+      txt("r:hi", sx(1), sy + 13, "+1", { align: "center", size: 9.5, enterDelay: 1600 }),
+      mark("r:dot", sx(fit.r), sy, 9, INK, { stroke: PAPER, strokeW: 1.5, layer: 8, arc: 0, enterDelay: 1600, dur: 900 })
+    )
+  }
   if (f.england !== null)
     specs.push(
       line("eng", x(f.england), top, x(f.england), bottom, { dash: [2, 3], alpha: 0.6, layer: 1 }),

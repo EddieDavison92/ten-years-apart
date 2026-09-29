@@ -690,7 +690,7 @@ function Rail({
         <ol className="flex min-w-0 flex-1 gap-4">
           {groups.map((g) => (
             // Single-scene chapters still need room for their names.
-            <li key={g.name} className="min-w-0" style={{ flex: `${Math.max(g.scenes.length, names || g.ci === chapter ? 2.4 : 1)} 1 0` }}>
+            <li key={g.name} className="min-w-0" style={{ flex: `${Math.max(g.scenes.length, g.ci === chapter ? 3.4 : names ? 2.4 : 1)} 1 0` }}>
               <button
                 type="button"
                 onClick={() => onGo(g.scenes[0].i)}

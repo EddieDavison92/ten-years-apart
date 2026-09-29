@@ -218,7 +218,7 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
             {less.length === 0 ? "none gained less" : `only ${list(less)} gained less`}.
           </>
         ),
-        note: `Gains are the trend across 2011–19, which damps a single good or bad year. The dashed line is a least-squares fit (r = ${signed(P.startFit.r, 2)}), so it describes the pattern, not a target.`,
+        note: "Gains are the trend across 2011–19, which damps a single good or bad year. The dashed line is a straight-line fit through all the dots: it describes the pattern, not a target.",
       }
     }
     case "rank": {
@@ -360,12 +360,13 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
         title: "What travels with it",
         body: (
           <>
-            Back to places, England only. Life expectancy lines up closely with child poverty (r = {signed(f.fit[sex].r, 2)}), {how} with
-            the deprivation score ({signed(data.imdR[sex], 2)}). That score counts early deaths, so part of its link is built in; child
-            poverty has no health component.
+            Back to places, England only: each dot is a local authority, placed by child poverty and life expectancy. The more children in
+            low-income families, the shorter the lives. The <B>r</B> score measures how tightly the dots follow a straight line, from 0
+            for no link to −1 or +1 for a perfect line; here it is {signed(f.fit[sex].r, 2)}, {how} the deprivation score (
+            {signed(data.imdR[sex], 2)}).
           </>
         ),
-        note: "Correlations between areas. They don't show cause and say nothing about any individual. Child poverty here is absolute low income before housing costs, which understates London.",
+        note: "The deprivation score counts early deaths, so part of its link is built in; child poverty has no health component. These are correlations between areas: they don't show cause and say nothing about any individual. Child poverty here is absolute low income before housing costs, which understates London.",
       }
     }
     case "factors": {
