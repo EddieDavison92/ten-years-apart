@@ -133,7 +133,7 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
         title: "Back to 2001",
         body: (
           <>
-            Stand the dots on a timeline and wind back to {P[0]}. Each dot is still a place; the black dot is the UK, where {w.plural} could
+            Now put the dots on a timeline, starting in {P[0]}. Each dot is still a place; the black dot is the UK, where {w.plural} could
             then expect {years(stall[sex].start)} years.
           </>
         ),

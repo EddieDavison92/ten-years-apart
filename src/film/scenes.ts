@@ -643,8 +643,7 @@ function stallChart(c: Ctx, stage: Stage): Spec[] {
   )
   const ukPts = cached(`ukpts:${sex}:${bk(box)}`, () => Float64Array.from(uk.flatMap((v, i) => [x(i), y(v)])))
   const { stall: iStall, precovid: iPre, now: LAST } = data.index
-  // Rewind draws no trails: the column slides back to 2001 before any line is laid.
-  const draw = stage === "rewind" ? 0 : t / LAST
+  const draw = t / LAST
   const hx = x(t)
   const heads: { id: string; y: number; value: number; name: string; colour: string; weight: number }[] = []
   const ukc = ukNow(c)
@@ -1742,7 +1741,7 @@ export const SCENES: SceneDef[] = [
   { id: "swarm", chapter: 0, build: swarm, aria: () => "Every UK local authority on one life expectancy axis" },
   { id: "map", chapter: 0, build: (c) => map(c, "gap"), aria: () => "Hex map of UK local authorities coloured by gap to the UK average" },
   { id: "ends", chapter: 0, build: (c) => map(c, "ends"), aria: () => "Hex map with the ten highest and ten lowest places ringed" },
-  { id: "rewind", chapter: 1, time: { from: "now", to: 0, ms: 1800, delay: 1100 }, build: (c) => stallChart(c, "rewind"), aria: () => "Every place in 2001–03, on a timeline" },
+  { id: "rewind", chapter: 1, time: { from: 0, to: 0, ms: 0 }, build: (c) => stallChart(c, "rewind"), aria: () => "Every place in 2001–03, on a timeline" },
   { id: "gains", chapter: 1, time: { from: 0, to: "stall", ms: 4200, delay: 400 }, build: (c) => stallChart(c, "gains"), aria: () => "Life expectancy rising from 2001–03 to 2011–13" },
   { id: "flat", chapter: 1, time: { from: "stall", to: "precovid", ms: 3000, delay: 300 }, build: (c) => stallChart(c, "flat"), aria: () => "Life expectancy flattening from 2011–13 to 2017–19" },
   { id: "covid", chapter: 1, time: { from: "precovid", to: "now", ms: 3000, delay: 300 }, build: (c) => stallChart(c, "covid"), aria: () => "COVID-19 and the shortfall against the earlier trend" },
