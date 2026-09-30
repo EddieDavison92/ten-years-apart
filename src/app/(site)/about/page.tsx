@@ -3,6 +3,7 @@ import path from "node:path"
 import type { Metadata } from "next"
 import { ONS_LINKS } from "@/lib/explorer/catalogue"
 import type { EvidenceFile } from "@/lib/explorer/evidence"
+import { getFilmData } from "@/lib/film/data"
 
 export const metadata: Metadata = { title: "Methods" }
 
@@ -12,18 +13,18 @@ async function loadEvidence(): Promise<EvidenceFile> {
 }
 
 export default async function AboutPage() {
-  const evidence = await loadEvidence()
+  const [evidence, film] = await Promise.all([loadEvidence(), getFilmData()])
   return (
     <article className="mx-auto w-full max-w-6xl pb-16 pt-10 sm:pt-14">
       <header className="max-w-3xl animate-rise">
         <p className="kicker">Methods</p>
         <h1 className="display mt-3 text-5xl text-ink sm:text-7xl">Sources and methods</h1>
         <p className="mt-6 text-xl leading-relaxed text-ink-2">
-          Every figure comes from official statistics, reused under the{" "}
+          UK figures come from official statistics, reused under the{" "}
           <a className="link" href={ONS_LINKS.ogl}>
             Open Government Licence v3.0
           </a>
-          . Numbers in the story are computed from these files when the site is built; none are typed in by hand.
+          . OECD figures use CC BY 4.0. Numbers in the film and long version are computed from these files when the site is built.
         </p>
       </header>
 
@@ -34,7 +35,7 @@ export default async function AboutPage() {
           how long anyone born then will live.
         </p>
         <p>
-          ONS doesn&apos;t test local differences for significance, so this site does. For a change or gap it takes
+          ONS doesn&apos;t test local differences for significance, so the area reports do. For a change or gap each report takes
           each figure&apos;s standard error from its 95% confidence interval (width ÷ 3.92) and calls the difference not
           significant when it is smaller than 1.96 times the combined standard error. That treats the two figures as
           independent; an area and its own nation aren&apos;t quite, which makes the area-versus-nation test slightly
@@ -158,6 +159,29 @@ export default async function AboutPage() {
           </a>{" "}
           splits the deprivation gap in life expectancy by cause of death.
         </p>
+      </Section>
+
+      <Section title="International comparisons">
+        <p>
+          {film.intl.countries.length} OECD members, with life expectancy at birth for men and women in single calendar years,
+          {film.intl.years[0]} to {film.intl.years.at(-1)}. Fetched {film.intl.fetched}. These figures differ slightly from the ONS
+          three-year estimates used elsewhere.
+        </p>
+        <p>
+          The OECD average counts each member equally. Latvia&apos;s missing 2001 value and Türkiye&apos;s missing 2024 value
+          use their nearest available year in the average. Other missing values remain gaps. Countries with equal published
+          values share a rank.
+        </p>
+        <p>
+          Annual gains use least-squares trends over 2001–11 and 2011–19. The comparison of starting levels uses 2011 life
+          expectancy against the trend gain to 2019. Its fitted line describes the relationship across countries, not a target.
+          Peers starting within a year of the UK are compared separately.
+        </p>
+        <Links items={[
+          ["OECD Health Statistics", "https://data-explorer.oecd.org/"],
+          ["Data used by the film", "/data/intl.json"],
+          ["CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/"],
+        ]} />
       </Section>
 
       <Section title="Maps and code">

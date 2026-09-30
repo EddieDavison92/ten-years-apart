@@ -8,14 +8,16 @@ export function SiteFooter() {
         <div className="max-w-xl space-y-2">
           <p className="display text-lg text-ink">Ten years apart</p>
           <p>
-            Life expectancy for every UK local authority. Data from ONS, OHID and MHCLG under the{" "}
+            Life expectancy for every UK local authority. UK data from ONS, OHID and MHCLG under the{" "}
             <a className="link" href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/">
               Open Government Licence v3.0
             </a>
-            . Boundaries © Crown copyright. Hex layout © Open Innovations (MIT).
+            . OECD data under CC BY 4.0. Boundaries © Crown copyright. Hex layout © Open Innovations (MIT).
           </p>
         </div>
         <nav className="flex flex-wrap gap-x-6 gap-y-2 md:justify-end">
+          <Link className="hover:text-ink" href="/">Film</Link>
+          <Link className="hover:text-ink" href="/story">Long version</Link>
           <Link className="hover:text-ink" href="/explore">Atlas</Link>
           <Link className="hover:text-ink" href="/evidence">Evidence</Link>
           <Link className="hover:text-ink" href="/about">Methods</Link>
