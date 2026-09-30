@@ -94,7 +94,8 @@ for (const r of rows) {
 }
 // Stop at the last year most members report; later gaps stay null.
 const reporting = (y) => Object.values(values).filter((v) => v.male[y] !== undefined).length
-while (reporting(last) < Object.keys(MEMBERS).length * 0.8) last -= 1
+while (last >= FROM && reporting(last) < Object.keys(MEMBERS).length * 0.8) last -= 1
+if (last < FROM) throw new Error("OECD: no year with 80% of members reporting")
 
 const years = []
 for (let y = FROM; y <= last; y += 1) years.push(y)

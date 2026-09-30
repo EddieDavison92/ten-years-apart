@@ -47,7 +47,7 @@ To link a fresh local checkout to the existing project:
 vercel link --project ten-years-apart --scope eddiedavisons-projects
 ```
 
-Push a feature branch and check its Vercel preview before merging to `master`. Do not create another Vercel project for the film. Merge the film import PR with a merge commit to retain both repositories' histories.
+Push a feature branch and check its Vercel preview before merging to `master`. Do not create another Vercel project for the film. The film was imported with a merge commit to retain both repositories' histories.
 
 ## Develop
 

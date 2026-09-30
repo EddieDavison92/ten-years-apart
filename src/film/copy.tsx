@@ -326,7 +326,8 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
             ONS counts a death under 75 as avoidable if its cause could mostly be prevented by public health measures or treated by timely
             healthcare. In {data.avoidable.now} the most deprived tenth averaged {Math.round(av[0].now)} such deaths per 100,000 {w.plural} a
             year, {ratio >= 1.95 && ratio < 2.05 ? "twice" : `${ratio.toFixed(1)} times`} the rate in the least deprived. Since{" "}
-            {data.avoidable.then} the rate has {avTrendSized(av)}, so the gap between the ends widened from {Math.round(av[0].then - av[9].then)} to{" "}
+            {data.avoidable.then} the rate has {avTrendSized(av)}, so the gap between the ends{" "}
+            {av[0].now - av[9].now >= av[0].then - av[9].then ? "widened" : "narrowed"} from {Math.round(av[0].then - av[9].then)} to{" "}
             {Math.round(av[0].now - av[9].now)} per 100,000.
           </>
         ),
@@ -370,7 +371,7 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       }
     }
     case "factors": {
-      const f = data.factors[factor] ?? data.factors[1]
+      const f = data.factors[factor] ?? data.factors[0]
       const A = data.air
       const r = f.fit[sex].r
       const kids = data.factors[0].fit[sex].r

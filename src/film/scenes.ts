@@ -1524,7 +1524,7 @@ function scatter(c: Ctx): Spec[] {
   const bottom = box.y + box.h - 40
   const x = scaleLinear().domain([Math.min(...xs), Math.max(...xs)]).nice(5).range([left, right])
   const yd = cached(`scy:${sex}`, () => {
-    const v = data.areas.filter((a) => a.nation === "E").map((a) => value(a, c) as number)
+    const v = data.areas.filter((a) => a.nation === "E").map((a) => value(a, c)).filter((x): x is number => x !== null)
     return [Math.floor(Math.min(...v)) - 0.5, Math.ceil(Math.max(...v)) + 0.5] as [number, number]
   })
   const y = scaleLinear().domain(yd).range([bottom, top])

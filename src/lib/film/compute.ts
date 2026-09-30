@@ -157,7 +157,9 @@ function peers(intl: Intl) {
     const avg = average(sex)
     // Starting point: life expectancy in 2011 against the trend gain to 2019. Countries that start
     // lower tend to gain more, so the UK is also compared with members that started within a year of it.
-    const start = intl.countries.map((c) => ({ code: c.code, start: c[sex][at(2011)] as number, gain: slope(c[sex], 2011, 2019) * 8 }))
+    const start = intl.countries
+      .filter((c) => typeof c[sex][at(2011)] === "number")
+      .map((c) => ({ code: c.code, start: c[sex][at(2011)] as number, gain: slope(c[sex], 2011, 2019) * 8 }))
     const startFit = linearFit(start.map((d) => ({ x: d.start, y: d.gain })))
     const ukStart = start.find((d) => d.code === "GBR")!
     const near = start.filter((d) => d.code !== "GBR" && Math.abs(d.start - ukStart.start) <= NEAR)
