@@ -1,0 +1,111 @@
+.film {
+  overscroll-behavior: none;
+}
+
+.film .no-scrollbar {
+  scrollbar-width: none;
+}
+
+.film .no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Captions: the new one rises line by line, the old one lifts away. */
+.film .cap-in .cap > * {
+  animation: film-cap-rise 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.film .cap-in .cap > :nth-child(1) { animation-delay: 0ms; }
+.film .cap-in .cap > :nth-child(2) { animation-delay: 70ms; }
+.film .cap-in .cap > :nth-child(3) { animation-delay: 160ms; }
+.film .cap-in .cap > :nth-child(4) { animation-delay: 240ms; }
+.film .cap-in .cap > :nth-child(5) { animation-delay: 320ms; }
+.film .cap-in .cap > :nth-child(6) { animation-delay: 400ms; }
+.film .cap-wait .cap > * {
+  animation-delay: calc(var(--wait, 220ms)) !important;
+}
+.film .cap-wait .cap > :nth-child(2) { --wait: 290ms; }
+.film .cap-wait .cap > :nth-child(3) { --wait: 380ms; }
+.film .cap-wait .cap > :nth-child(4) { --wait: 460ms; }
+.film .cap-wait .cap > :nth-child(5) { --wait: 540ms; }
+.film .cap-wait .cap > :nth-child(6) { --wait: 620ms; }
+/* The text block follows the title in the same stagger. */
+.film .cap-in .cap-body > :nth-child(1) { animation-delay: 160ms; }
+.film .cap-in .cap-body > :nth-child(2) { animation-delay: 240ms; }
+.film .cap-in .cap-body > :nth-child(3) { animation-delay: 320ms; }
+.film .cap-wait .cap-body > :nth-child(1) { --wait: 380ms; }
+.film .cap-wait .cap-body > :nth-child(2) { --wait: 460ms; }
+.film .cap-wait .cap-body > :nth-child(3) { --wait: 540ms; }
+/* Within a scene: a quick fade in place. */
+.film .cap-soft .cap > * {
+  animation: film-fade 360ms ease-out 120ms both;
+}
+.film .cap-soft-out {
+  animation: film-cap-fade-out 220ms ease-in both;
+}
+@keyframes film-cap-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+.film .cap-extra {
+  animation: film-cap-rise 900ms cubic-bezier(0.2, 0.7, 0.2, 1) 380ms both;
+}
+.film .cap-out {
+  animation: film-cap-leave 380ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@keyframes film-cap-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+@keyframes film-cap-leave {
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+    filter: blur(2px);
+  }
+}
+@keyframes film-menu {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+@keyframes film-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes film-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes film-tick {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .film .cap-in .cap > *,
+  .film .cap-in .cap-body > *,
+  .film .cap-extra,
+  .film .cap-out,
+  .film .cap-soft .cap > *,
+  .film .cap-soft-out {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+  }
+}
