@@ -14,7 +14,7 @@ const config = {
         loss: "#a83a22",
         poor: "#cbc3b2",
         brick: "#b3452c",
-        teal: { DEFAULT: "#075862", 2: "#1e8590" },
+        teal: { DEFAULT: "#0b5a4c", 2: "#2a8a76" },
       },
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
