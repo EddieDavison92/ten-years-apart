@@ -225,10 +225,10 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
         title: "Falling back",
         finding:
           ukPace < S.averagePace.post && months(ukPace) < 1.5
-            ? "Gains slowed across rich countries after 2011. In the UK they almost stopped."
+            ? "Gains slowed across the OECD after 2011. In the UK they almost stopped."
             : S.slower.length <= others / 4
-              ? "Gains slowed across rich countries after 2011, and the UK slowed more than most."
-              : "Gains slowed across rich countries after 2011, the UK's among them.",
+              ? "Gains slowed across the OECD after 2011, and the UK slowed more than most."
+              : "Gains slowed across the OECD after 2011, the UK's among them.",
         body: (
           <>
             The UK beside eight other OECD members and the average of all {I.countries.length}. From 2011 to 2019 the average still gained{" "}
@@ -384,7 +384,7 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
             )}
           </>
         ),
-        note: "Unweighted averages of local authorities. Each mixes richer and poorer neighbourhoods, so ONS figures by neighbourhood show a wider gap.",
+        note: "Unweighted averages of local authorities. Each mixes more and less deprived neighbourhoods, so ONS figures by neighbourhood show a wider gap.",
       }
     }
     case "avoidable": {
@@ -415,7 +415,7 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
         title: "The years in between",
         finding:
           h0.life - h0.healthy > h9.life - h9.healthy
-            ? "Poorer areas get shorter lives, and more of those years in poor health."
+            ? "More deprived areas get shorter lives, and more of those years in poor health."
             : "The gap in healthy years is wider than the gap in lifespan.",
         body: (
           <>
@@ -582,15 +582,15 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
         Math.abs(v) < 0.05
           ? "barely moved"
           : `${v > 0 ? "gained" : "lost"} ${Math.abs(Math.abs(v) - 1) < 0.05 ? "a year" : Math.abs(v) > 1 ? `${years(Math.abs(v))} years` : monthsWord(v)}`
-      const poorer = eng.length > 0 && deprived / eng.length >= 0.6
+      const deprivedHalf = eng.length > 0 && deprived / eng.length >= 0.6
       return {
         title: "Back where we began",
-        finding: fell.length >= 10 ? `For many places the stall became a reversal${poorer ? ", mostly in England's poorer areas" : ""}.` : undefined,
+        finding: fell.length >= 10 ? `For many places the stall became a reversal${deprivedHalf ? ", mostly in England's more deprived areas" : ""}.` : undefined,
         body: (
           <>
             The map again, coloured by change since {P[index.stall]}. <B>{fell.length}</B> places are at least six months lower for{" "}
             {w.plural}
-            {poorer ? `; in England, ${deprived} of those ${eng.length} are in the more deprived half` : ""}.
+            {deprivedHalf ? `; in England, ${deprived} of those ${eng.length} are in the more deprived half` : ""}.
             Since {P[index.stall]} {pair.high.name} has {moveText(d(pair.high.code))}; {pair.low.name} has {moveText(d(pair.low.code))}.
           </>
         ),

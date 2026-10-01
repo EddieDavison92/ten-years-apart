@@ -102,7 +102,8 @@ export const Stage = forwardRef<StageHandle, Props>(function Stage(props, ref) {
     tile.width = tile.height = 12
     const tc = tile.getContext("2d")
     if (tc) {
-      tc.strokeStyle = "rgba(17,19,21,0.16)"
+      // HEALTHY at low alpha, to match the pale tint it sits on.
+      tc.strokeStyle = "rgba(59,106,140,0.3)"
       tc.lineWidth = 1.4
       for (const o of [-12, 0, 12]) {
         tc.beginPath()

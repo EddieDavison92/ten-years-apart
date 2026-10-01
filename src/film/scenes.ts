@@ -1472,10 +1472,11 @@ function healthy(c: Ctx): Spec[] {
     specs.push(
       // Bars grow together, so no tenth looks healthiest just because it started first.
       // Bars linger as they leave, so the next scene's dots visibly split out of them.
-      mark(`hb:${d}`, (x(0) + x(h)) / 2, y, x(h) - x(0), HEALTHY, { h: bh, rad: 3, arc: 0, enter: { x: x(0), w: 0, h: bh, alpha: 1 }, enterDelay: 400 + d * 12, dur: 1400, layer: 2, exit: "fade", exitDelay: 650 }),
-      mark(`pb:${d}`, (x(h) + x(L)) / 2 + 1, y, Math.max(0, x(L) - x(h) - 2), POOR, { h: bh, rad: 3, hatch: true, arc: 0, enter: { x: x(h), w: 0, h: bh, alpha: 1 }, enterDelay: 1700 + d * 12, dur: 900, layer: 2 }),
+      // One bar per tenth: healthy years, then the remaining years as its pale continuation.
+      mark(`hb:${d}`, (x(0) + x(h)) / 2, y, x(h) - x(0), HEALTHY, { h: bh, rad: 4, flat: "right", arc: 0, enter: { x: x(0), w: 0, h: bh, alpha: 1 }, enterDelay: 400 + d * 12, dur: 1400, layer: 2, exit: "fade", exitDelay: 650 }),
+      mark(`pb:${d}`, (x(h) + x(L)) / 2, y, x(L) - x(h), POOR, { h: bh, rad: 4, flat: "left", hatch: true, arc: 0, enter: { x: x(h), w: 0, h: bh, alpha: 1 }, enterDelay: 1700 + d * 12, dur: 900, layer: 2 }),
       txt(`hbv:${d}`, x(h) - 8, y + 0.5, "", { value: h, format: (v) => years(v), align: "right", size: c.narrow ? 10.5 : 11.5, weight: 600, color: WHITE, enter: { x: x(0) - 8, value: 0, alpha: 1 }, enterDelay: 400 + d * 12, dur: 1400, layer: 9 }),
-      txt(`pbv:${d}`, (x(h) + x(L)) / 2 + 1, y + 0.5, years(L - h), { align: "center", size: c.narrow ? 10 : 11, color: INK_2, enterDelay: 2300 + d * 12, layer: 9, alpha: x(L) - x(h) > 34 ? 1 : 0 }),
+      txt(`pbv:${d}`, (x(h) + x(L)) / 2, y + 0.5, years(L - h), { align: "center", size: c.narrow ? 10 : 11, color: INK_2, enterDelay: 2300 + d * 12, layer: 9, alpha: x(L) - x(h) > 34 ? 1 : 0 }),
       txt(`life:${d}`, x(L) + 12, y + 0.5, years(L), { size: c.narrow ? 11 : 12, weight: 700, color: INK, enterDelay: 2400 + d * 12 }),
       // The lollipops become lifelines: the stick stretches to the whole lifespan under the bars and the dot rides to its end,
       // as in the opening scene.
