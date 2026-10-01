@@ -512,7 +512,15 @@ function CaptionText({ scene, copy, compact }: { scene: SceneDef; copy: ReturnTy
   const open = scene.id === "open"
   return (
     <div className="cap cap-body">
-      <p className={cn("text-ink-2", compact ? "mt-2.5 text-[15px] leading-[1.55]" : open ? "mt-7 text-[17.5px] leading-[1.6]" : "mt-5 text-[17px] leading-[1.6]")}>
+      {copy.finding ? (
+        <p className={cn("font-semibold text-ink", compact ? "mt-2.5 text-[16px] leading-[1.4]" : "mt-5 text-[19px] leading-[1.4]")}>{copy.finding}</p>
+      ) : null}
+      <p
+        className={cn(
+          "text-ink-2",
+          compact ? "mt-2.5 text-[15px] leading-[1.55]" : open ? "mt-7 text-[17.5px] leading-[1.6]" : copy.finding ? "mt-3 text-[17px] leading-[1.6]" : "mt-5 text-[17px] leading-[1.6]"
+        )}
+      >
         {copy.body}
       </p>
       {copy.stat ? (

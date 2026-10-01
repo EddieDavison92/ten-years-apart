@@ -1,10 +1,11 @@
 import type { ReactNode } from "react"
-import type { FilmData, Sex } from "@/lib/film/compute"
+import type { Area, FilmData, Sex } from "@/lib/film/compute"
 import { capital, months, nth, ordinal, signed, words, years } from "@/lib/film/format"
 
 export type CopyCtx = { data: FilmData; sex: Sex; factor: number }
 
-type Copy = { title: string; body: ReactNode; note?: ReactNode; stat?: { value: string; label: string } }
+/** `finding` states what the scene shows in one sentence; `body` explains the chart and gives the figures. */
+type Copy = { title: string; finding?: ReactNode; body: ReactNode; note?: ReactNode; stat?: { value: string; label: string } }
 
 const WHO = {
   male: { plural: "men", adj: "male", child: "boy" },
@@ -23,6 +24,20 @@ const monthsWord = (y: number) => {
   const m = Math.round(Math.abs(y) * 12)
   return `${m <= 10 ? words(m) : m} month${m === 1 ? "" : "s"}`
 }
+
+/** One gain as a share of another, in words: "about half as much as". */
+const asMuch = (r: number) =>
+  r < 0.45
+    ? "less than half as much as"
+    : r < 0.58
+      ? "about half as much as"
+      : r < 0.72
+        ? "about two thirds as much as"
+        : r < 0.9
+          ? "about three quarters as much as"
+          : r < 1
+            ? "nearly as much as"
+            : "at least as much as"
 
 /** How the ten tenths moved, most deprived first, with sizes; changes inside NOISE count as barely moved. */
 function split(moves: number[]) {
@@ -87,6 +102,7 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
     case "swarm":
       return {
         title: `${data.areas.length} places, one line`,
+        finding: "Most places sit close together. The gap is made by the few at each end.",
         body: (
           <>
             Each dot is a UK local authority, placed by how long its {w.plural} can expect to live. Most crowd the middle: the middle half
@@ -102,22 +118,35 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
           </>
         ),
       }
-    case "map":
+    case "map": {
+      const below = (n: Area["nation"]) => {
+        const a = data.areas.filter((x) => x.nation === n && x[sex][index.now] !== null)
+        return { n: a.length, below: a.filter((x) => (x[sex][index.now] as number) < stall[sex].now).length }
+      }
+      const S = below("S")
+      const Wl = below("W")
+      const E = below("E")
+      const clustered = S.below > S.n / 2 && Wl.below > Wl.n / 2 && E.below < E.n / 2
       return {
         title: "Every dot is a place",
+        finding: clustered ? "Shorter lives cluster: most of Scotland and Wales sits below the UK figure, most of England above." : undefined,
         body: (
           <>
             The same dots, set roughly where each place sits on the map. <span className="font-semibold text-brick">Brick</span> is
-            shorter than the UK figure of {years(stall[sex].now)} years, <span className="font-semibold text-teal">teal</span> longer.
+            shorter than the UK figure of {years(stall[sex].now)} years, <span className="font-semibold text-teal">teal</span> longer.{" "}
+            {S.below} of Scotland&apos;s {S.n} areas are brick for {w.plural}, {Wl.below} of Wales&apos;s {Wl.n} and {E.below} of
+            England&apos;s {E.n}.
           </>
         ),
         note: "Hover or tap any dot for its figures.",
       }
+    }
     case "ends": {
       const n = ext.bottomTen.length
       const tie = n > 10 ? ` (${words(n - 9)} tie for tenth)` : ""
       return {
         title: "The two ends",
+        finding: ext.bottomTenScotland / n > data.nations.S / data.areas.length * 2 ? "Part of the UK's gap is a gap between its nations." : undefined,
         body: (
           <>
             Ringed: the highest and lowest for {w.plural}.{" "}
@@ -142,6 +171,7 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       const up = data.areas.filter((a) => (a[sex][index.stall] ?? 0) > (a[sex][index.start] ?? Infinity)).length
       return {
         title: "A decade of gains",
+        finding: `In the 2000s, lives got longer ${up === data.areas.length ? "everywhere" : up >= data.areas.length * 0.95 ? "almost everywhere" : "in most places"}.`,
         body: (
           <>
             From {P[0]} to {P[index.stall]}, UK life expectancy rose by about {months(stall.male.pre)} months a year for men and{" "}
@@ -153,16 +183,13 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       }
     }
     case "flat": {
-      const both = months(stall.male.post) < 1 && months(stall.female.post) < 1
       return {
         title: "Then it flattened",
+        finding: "Progress stalled after 2011, years before COVID-19.",
         body: (
           <>
-            Between {P[index.stall]} and {P[index.precovid]} the gains shrank to{" "}
-            {both
-              ? "under a month a year for both men and women"
-              : `${months(stall.male.post)} months a year for men and ${months(stall.female.post)} for women`}
-            . The slowdown began years before the pandemic.
+            Between {P[index.stall]} and {P[index.precovid]} the yearly gain for {w.plural} shrank from about {months(stall[sex].pre)}{" "}
+            months to {months(stall[sex].post) < 1 ? "under one" : months(stall[sex].post)}.
           </>
         ),
       }
@@ -171,6 +198,7 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       const s = stall[sex]
       return {
         title: "COVID and after",
+        finding: s.shortfallPre > s.shortfall / 4 ? "COVID-19 deepened a shortfall that had already opened." : "Most of the shortfall came with COVID-19.",
         body: (
           <>
             COVID-19 pushed life expectancy down. By {P[index.now]} {w.plural} were at {years(s.now)} years,{" "}
@@ -190,12 +218,23 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       const lead = (y: number) => (uk[I.years.indexOf(y)] as number) - avg[I.years.indexOf(y)]
       const last = I.years[I.years.length - 1]
       const vs = (d: number) => `${years(Math.abs(d))} years ${d >= 0 ? "longer than" : "less than"}`
+      const S = I[sex]
+      const ukPace = S.rows.find((r) => r.code === "GBR")!.post
+      const others = S.rows.length - 1
       return {
         title: "Falling back",
+        finding:
+          ukPace < S.averagePace.post && months(ukPace) < 1.5
+            ? "Gains slowed across rich countries after 2011. In the UK they almost stopped."
+            : S.slower.length <= others / 4
+              ? "Gains slowed across rich countries after 2011, and the UK slowed more than most."
+              : "Gains slowed across rich countries after 2011, the UK's among them.",
         body: (
           <>
-            Was the stall only British? Here is the UK beside eight other OECD members and the average of all {I.countries.length}. In
-            2011 UK {w.plural} could expect to live {vs(lead(2011))} the OECD average; by {last}, <B>{vs(lead(last)).replace(" than", "")}</B>.
+            The UK beside eight other OECD members and the average of all {I.countries.length}. From 2011 to 2019 the average still gained{" "}
+            {months(S.averagePace.post)} months a year; UK {w.plural} gained {months(ukPace)}, and only {words(S.slower.length)} of the other{" "}
+            {others} members gained less. In 2011 UK {w.plural} lived {vs(lead(2011))} the average; by {last},{" "}
+            <B>{vs(lead(last)).replace(" than", "")}</B>.
           </>
         ),
         note: "OECD Health Statistics, single calendar years. The average is the unweighted mean of members, with Latvia's 2001 and Türkiye's 2024 filled from their nearest year. UK figures differ slightly from the ONS three-year estimates used elsewhere.",
@@ -209,13 +248,16 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       const less = P.nearLess.map((c) => names.get(c) ?? c)
       return {
         title: "Room to grow",
+        finding:
+          uk.gain < expected * 0.9
+            ? `Its starting level doesn't explain it: the UK gained ${asMuch(uk.gain / expected)} the trend predicts.`
+            : "The UK gained about what the trend predicts for its starting level.",
         body: (
           <>
             Each dot is an OECD member: across, its life expectancy in 2011; up, what it gained by 2019. Countries that started lower
             gained more, about {years(Math.abs(P.startFit.slope), 1)} years less for each year of head start. For a country starting
-            where the UK did, the line expects {years(expected)}; UK {w.plural} gained <B>{years(uk.gain)}</B>. Of the {P.nearCount} members
-            that started within a year of the UK,{" "}
-            {less.length === 0 ? "none gained less" : `only ${list(less)} gained less`}.
+            where the UK did, the line expects {years(expected)}; UK {w.plural} gained <B>{years(uk.gain)}</B>. Of the {P.nearCount - 1} other
+            members that started within a year of the UK, {less.length === 0 ? "none gained less" : `only ${list(less)} gained less`}.
           </>
         ),
         note: "Gains are the trend across 2011–19, which damps a single good or bad year. The dashed line is a straight-line fit through all the dots: it describes the pattern, not a target.",
@@ -234,13 +276,28 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       }
       const ukNow = I.countries[k][sex][last] as number
       const near = I.countries.filter((c, j) => j !== k && c[sex][last] !== null && Math.abs((c[sex][last] as number) - ukNow) <= 0.5).length
+      const i11 = I.years.indexOf(2011)
+      const Rk = I[sex].ranks
+      // Members behind the UK in 2011 and ahead of it now, furthest ahead first.
+      const passed = I.countries
+        .filter((_, j) => j !== k && Rk[j][i11] !== null && Rk[j][last] !== null && (Rk[j][i11] as number) > (R[i11] as number) && (Rk[j][last] as number) < (R[last] as number))
+        .sort((a, b) => (b[sex][last] as number) - (a[sex][last] as number))
+        .map((c) => c.name)
+      const n = passed.length
       return {
         title: "Down the table",
+        finding:
+          n === 0
+            ? `No country has overtaken UK ${w.plural} since 2011.`
+            : `${n === 1 ? "One country" : `${capital(words(n))} countries`} that UK ${w.plural} outlived in 2011 now ${n === 1 ? "outlives" : "outlive"} them.`,
         body: (
           <>
-            Now all {I.countries.length} members, ranked each year with the longest life expectancy at the top; each name shows its{" "}
-            {lastYear} figure. UK {w.plural} were {place(I.years.indexOf(2001))} in 2001 and {place(I.years.indexOf(2011))} in 2011. By{" "}
-            {lastYear} they were <B>{place(last)} of {I[sex].reporting[last]}</B>.
+            All {I.countries.length} members, ranked each year with the longest life expectancy at the top; each name shows its {lastYear}{" "}
+            figure. UK {w.plural} were {place(I.years.indexOf(2001))} in 2001 and {place(i11)} in 2011. By {lastYear} they were{" "}
+            <B>
+              {place(last)} of {I[sex].reporting[last]}
+            </B>
+.{n === 0 ? "" : n <= 4 ? ` ${list(passed)} overtook them.` : ` Those that overtook them include ${list(passed.slice(0, 3))}.`}
           </>
         ),
         note: `In ${lastYear}, ${words(near)} countries were within six months of the UK, so small differences move it several places. The gap to the average is the steadier measure.`,
@@ -257,12 +314,14 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       const g19 = gain(ukv, i19)
       const gL = gain(ukv, last)
       const avg = I[sex].average
+      const avgG19 = avg[i19] - avg[i11]
       return {
         title: "Since 2011",
+        finding: `By 2019 UK ${w.plural} had gained ${asMuch(g19 / avgG19)} the OECD average since 2011.`,
         body: (
           <>
             Slide every line so it passes through zero in 2011. To the left, each country climbs to its 2011 level; to the right is what
-            it has gained since. By 2019 UK {w.plural} had gained <B>{years(g19)} years</B>, against {years(avg[i19] - avg[i11])} for the OECD
+            it has gained since. By 2019 UK {w.plural} had gained <B>{years(g19)} years</B>, against {years(avgG19)} for the OECD
             average, and by {Y[last]} they were {years(Math.abs(gL))} years {gL >= 0 ? "above" : "below"} their 2011 level. But a
             country that started lower had more room to rise.
           </>
@@ -273,9 +332,10 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
     case "tenths":
       return {
         title: "Ten steps down",
+        finding: `The more deprived the area, the shorter the lives, ${rows.every((r, i) => i === 0 || r[index.now] > rows[i - 1][index.now]) ? "at every step" : "almost step by step"}.`,
         body: (
           <>
-            Back home, the stall wasn&apos;t shared equally. These are England&apos;s {data.englandAreas} local authorities, in ten groups of
+            Back home: these are England&apos;s {data.englandAreas} local authorities, in ten groups of
             29 or 30 by deprivation score (IMD 2025). Black ticks mark each group&apos;s average: {years(rows[0][index.now])} years for{" "}
             {w.plural} in the most deprived tenth, {years(rows[9][index.now])} in the least.
           </>
@@ -285,6 +345,12 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
     case "moved":
       return {
         title: "Moving apart",
+        finding:
+          change(rows[0]) <= -NOISE && change(rows[9]) >= NOISE
+            ? "The stall wasn't shared: the most deprived places went backwards while the least deprived kept gaining."
+            : change(rows[9]) > change(rows[0])
+              ? "The stall wasn't shared: the least deprived places gained most."
+              : undefined,
         body: (
           <>
             The same dots, now placed by how much {w.adj} life expectancy changed between {P[index.stall]} and {P[index.now]}.{" "}
@@ -296,8 +362,13 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
     case "widening": {
       const g = data.deciles[sex][9].map((v, i) => v - data.deciles[sex][0][i])
       const peak = g.indexOf(Math.max(...g.slice(index.stall)))
+      const grew = g[index.now] - g[index.stall]
       return {
         title: "Parting ways",
+        finding:
+          grew >= 0.25
+            ? `Since ${P[index.stall]} the gap between the most and least deprived has grown by about ${grew >= 0.95 ? "a year" : monthsWord(grew)}.`
+            : undefined,
         body: (
           <>
             Averaged, each tenth becomes one line. For a decade the most and least deprived rose side by side, about {years(g[index.stall])}{" "}
@@ -319,15 +390,16 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
     case "avoidable": {
       const av = data.avoidable[sex]
       const ratio = av[0].now / av[9].now
+      const widened = av[0].now - av[9].now >= av[0].then - av[9].then
       return {
         title: "Deaths before 75",
+        finding: `People in the most deprived areas die avoidably at ${ratio >= 1.95 && ratio < 2.05 ? "twice" : `${ratio.toFixed(1)} times`} the rate of the least deprived, and the gap is ${widened ? "widening" : "narrowing"}.`,
         body: (
           <>
             ONS counts a death under 75 as avoidable if its cause could mostly be prevented by public health measures or treated by timely
             healthcare. In {data.avoidable.now} the most deprived tenth averaged {Math.round(av[0].now)} such deaths per 100,000 {w.plural} a
-            year, {ratio >= 1.95 && ratio < 2.05 ? "twice" : `${ratio.toFixed(1)} times`} the rate in the least deprived. Since{" "}
-            {data.avoidable.then} the rate has {avTrendSized(av)}, so the gap between the ends{" "}
-            {av[0].now - av[9].now >= av[0].then - av[9].then ? "widened" : "narrowed"} from {Math.round(av[0].then - av[9].then)} to{" "}
+            year, against {Math.round(av[9].now)} in the least deprived. Since {data.avoidable.then} the rate has {avTrendSized(av)}, so the
+            gap between the ends {widened ? "widened" : "narrowed"} from {Math.round(av[0].then - av[9].then)} to{" "}
             {Math.round(av[0].now - av[9].now)} per 100,000.
           </>
         ),
@@ -341,6 +413,10 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       const k = (h9.healthy - h0.healthy) / (h9.life - h0.life)
       return {
         title: "The years in between",
+        finding:
+          h0.life - h0.healthy > h9.life - h9.healthy
+            ? "Poorer areas get shorter lives, and more of those years in poor health."
+            : "The gap in healthy years is wider than the gap in lifespan.",
         body: (
           <>
             Early deaths are one measure; years in good health are another. Healthy life expectancy estimates the years lived in self-rated
@@ -359,12 +435,12 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       const how = kids > imd + 0.02 ? "more closely than" : kids > imd - 0.02 ? "about as closely as" : "nearly as closely as"
       return {
         title: "What travels with it",
+        finding: `Where more children grow up poor, lives are shorter. Child poverty alone tracks life expectancy ${how} the whole deprivation score.`,
         body: (
           <>
-            Back to places, England only: each dot is a local authority, placed by child poverty and life expectancy. The more children in
-            low-income families, the shorter the lives. The <B>r</B> score measures how tightly the dots follow a straight line, from 0
-            for no link to −1 or +1 for a perfect line; here it is {signed(f.fit[sex].r, 2)}, {how} the deprivation score (
-            {signed(data.imdR[sex], 2)}).
+            Back to places, England only: each dot is a local authority, placed by child poverty and life expectancy. The <B>r</B> score
+            measures how tightly the dots follow a straight line, from 0 for no link to −1 or +1 for a perfect line; here it is{" "}
+            {signed(f.fit[sex].r, 2)}, against {signed(data.imdR[sex], 2)} for the deprivation score.
           </>
         ),
         note: "The deprivation score counts early deaths, so part of its link is built in; child poverty has no health component. These are correlations between areas: they don't show cause and say nothing about any individual. Child poverty here is absolute low income before housing costs, which understates London.",
@@ -381,6 +457,7 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       if (f.key === "airPollution")
         return {
           title: "Not everything lines up",
+          finding: A.london >= 20 && A[sex] > A.england[sex] ? "Air pollution is heaviest in London, where lives are longer than average." : undefined,
           body: (
             <>
               Air pollution barely lines up with life expectancy (r = {signed(r, 2)}). The 30 areas where it accounts for the largest share of
@@ -393,6 +470,7 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       if (f.key === "imd")
         return {
           title: "And the rest",
+          finding: "Deprivation tracks life expectancy closely, but partly by design.",
           body: (
             <>
               The deprivation score lines up {strength} with life expectancy (r = {signed(r, 2)}), partly by construction: it counts early
@@ -403,6 +481,7 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
         }
       return {
         title: "And the rest",
+        finding: "Disadvantages cluster in the same places, and most of them track shorter lives.",
         body: (
           <>
             {f.short} {verb} up {strength} with shorter lives (r = {signed(r, 2)}){Math.abs(r) < Math.abs(kids) ? ", less tightly than child poverty" : ""}.
@@ -419,8 +498,13 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
       const gN = at(le.high, index.now) - at(le.low, index.now)
       const lowSince = at(le.low, index.now) - at(le.low, index.stall)
       const lowTotal = at(le.low, index.now) - at(le.low, 0)
+      const highSince = at(le.high, index.now) - at(le.high, index.stall)
       return {
         title: `${pair.low.name} and ${pair.high.name}`,
+        finding:
+          highSince >= 0.3 && lowSince < 0.3
+            ? `Since ${P[index.stall]} ${pair.low.name} has ${lowSince < -0.05 ? "gone backwards" : "barely moved"} while ${pair.high.name} kept gaining.`
+            : undefined,
         body: (
           <>
             Back to the two places we started with. {pair.high.name} has gained {years(at(le.high, index.now) - at(le.high, 0))} years since{" "}
@@ -448,8 +532,10 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
             : `is only the ${ordinal(r.rank)} most deprived of ${r.of}`
       const middling = pair.imd.high.rank < pair.imd.high.of * 0.7
       const ci = (c: number[] | null) => (c ? ` (${years(c[0])}–${years(c[1])})` : "")
+      const worse = (av.low[last] as number) > (av.high[last] as number) && kids.low > kids.high && pair.imd.low.rank < pair.imd.high.rank
       return {
         title: "What differs",
+        finding: worse ? "Shorter lives come with more avoidable deaths, more child poverty and deeper deprivation." : undefined,
         body: (
           <>
             {pair.hle.low !== null && pair.hle.high !== null ? (
@@ -496,13 +582,15 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
         Math.abs(v) < 0.05
           ? "barely moved"
           : `${v > 0 ? "gained" : "lost"} ${Math.abs(Math.abs(v) - 1) < 0.05 ? "a year" : Math.abs(v) > 1 ? `${years(Math.abs(v))} years` : monthsWord(v)}`
+      const poorer = eng.length > 0 && deprived / eng.length >= 0.6
       return {
         title: "Back where we began",
+        finding: fell.length >= 10 ? `For many places the stall became a reversal${poorer ? ", mostly in England's poorer areas" : ""}.` : undefined,
         body: (
           <>
             The map again, coloured by change since {P[index.stall]}. <B>{fell.length}</B> places are at least six months lower for{" "}
             {w.plural}
-            {eng.length && deprived / eng.length >= 0.6 ? `; in England, ${deprived} of those ${eng.length} are in the more deprived half` : ""}.
+            {poorer ? `; in England, ${deprived} of those ${eng.length} are in the more deprived half` : ""}.
             Since {P[index.stall]} {pair.high.name} has {moveText(d(pair.high.code))}; {pair.low.name} has {moveText(d(pair.low.code))}.
           </>
         ),
