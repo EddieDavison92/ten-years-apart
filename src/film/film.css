@@ -32,9 +32,11 @@
 .film .cap-in .cap-body > :nth-child(1) { animation-delay: 160ms; }
 .film .cap-in .cap-body > :nth-child(2) { animation-delay: 240ms; }
 .film .cap-in .cap-body > :nth-child(3) { animation-delay: 320ms; }
+.film .cap-in .cap-body > :nth-child(4) { animation-delay: 400ms; }
 .film .cap-wait .cap-body > :nth-child(1) { --wait: 380ms; }
 .film .cap-wait .cap-body > :nth-child(2) { --wait: 460ms; }
 .film .cap-wait .cap-body > :nth-child(3) { --wait: 540ms; }
+.film .cap-wait .cap-body > :nth-child(4) { --wait: 620ms; }
 /* Within a scene: a quick fade in place. */
 .film .cap-soft .cap > * {
   animation: film-fade 360ms ease-out 120ms both;
