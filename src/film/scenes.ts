@@ -1640,6 +1640,10 @@ function pairWhy(c: Ctx): Spec[] {
   const last = av.low.length - 1
   // England-only rows use a stand-in when a place is outside England.
   const sub = { low: P.standIn.low, high: P.standIn.high }
+  const { low, high } = pairCodes(c)
+  // The followed place joins as a third dot wherever it has a figure.
+  const fa = c.follow && c.follow !== low && c.follow !== high ? (data.areas.find((a) => a.code === c.follow) ?? null) : null
+  const followAt = (key: string) => (!fa ? null : key === "hle" ? fa.why[sex].hle : key === "av" ? fa.why[sex].av : (fa.f[key] ?? null))
   const rows = [
     {
       key: "hle",
@@ -1662,14 +1666,17 @@ function pairWhy(c: Ctx): Spec[] {
   const right = box.x + box.w - (compact ? 48 : 92)
   const rowH = box.h / rows.length
   const specs: Spec[] = []
-  const { low, high } = pairCodes(c)
   rows.forEach((row, k) => {
+    const fv = followAt(row.key)
     const top = box.y + rowH * k + (compact ? rowH / 2 : 14)
     const trackY = compact ? top : top + 54
-    const max = Math.max(row.low ?? 0, row.high ?? 0, row.england ?? 0) * 1.12
+    const max = Math.max(row.low ?? 0, row.high ?? 0, row.england ?? 0, fv ?? 0) * 1.12
     const x = scaleLinear().domain([0, max]).range([left, right])
     const delay = k * 160
     const digits = row.unit === "%" || row.key === "hle" ? 1 : 0
+    // The followed value sits above its dot unless a pair value is already there; then below, in place of a nearby England label.
+    const followBelow = fv !== null && [row.low, row.high].some((v) => v !== null && Math.abs(x(v) - x(fv)) < 48)
+    const engHidden = followBelow && row.england !== null && Math.abs(x(row.england) - x(fv as number)) < 70
     specs.push(
       txt(`pw:${row.key}:label`, compact ? box.x : left, top, compact ? row.brief : row.label, { size: compact ? 11 : 14, weight: 600, color: INK, delay, enter: "rise" }),
       txt(`pw:${row.key}:note`, left, top + 18, row.note, { size: 11, color: INK_3, delay, enter: "rise", alpha: compact ? 0 : 1 }),
@@ -1678,11 +1685,12 @@ function pairWhy(c: Ctx): Spec[] {
     if (row.england !== null)
       specs.push(
         line(`pw:${row.key}:eng`, x(row.england), trackY - 8, x(row.england), trackY + 8, { width: 1.5, color: INK_3, delay: delay + 300, layer: 2 }),
-        txt(`pw:${row.key}:englab`, x(row.england), trackY + 20, `England ${years(row.england, digits)}${row.unit}`, { align: "center", size: 10.5, color: INK_3, delay: delay + 300, alpha: c.narrow ? 0 : 1 })
+        txt(`pw:${row.key}:englab`, x(row.england), trackY + 20, `England ${years(row.england, digits)}${row.unit}`, { align: "center", size: 10.5, color: INK_3, delay: delay + 300, alpha: c.narrow || engHidden ? 0 : 1 })
       )
     const dots = [
       { side: "low", v: row.low, colour: BRICK, from: `a:${low}`, stand: row.stand ? sub.low : null },
       { side: "high", v: row.high, colour: TEAL, from: `a:${high}`, stand: row.stand ? sub.high : null },
+      { side: "follow", v: fv, colour: FOLLOW, from: `a:${c.follow}`, stand: null },
     ]
     for (const d of dots) {
       if (d.v === null) continue
@@ -1696,7 +1704,7 @@ function pairWhy(c: Ctx): Spec[] {
           dur: 1200,
           layer: 5,
         }),
-        txt(`pw:${row.key}:${d.side}:v`, x(d.v), trackY - (compact ? 14 : 18), `${d.stand && !compact ? `${d.stand.name} ` : ""}${years(d.v, digits)}${row.unit}`, {
+        txt(`pw:${row.key}:${d.side}:v`, x(d.v), d.side === "follow" && followBelow ? trackY + (compact ? 15 : 20) : trackY - (compact ? 14 : 18), `${d.stand && !compact ? `${d.stand.name} ` : ""}${years(d.v, digits)}${row.unit}`, {
           align: "center",
           size: compact ? 10.5 : 12.5,
           weight: 700,
@@ -1735,6 +1743,13 @@ function pairWhy(c: Ctx): Spec[] {
   const lowName = short(P.low.name, compact)
   const highName = short(P.high.name, compact)
   const keyW = textWidth(lowName, 11.5, 600)
+  const standW = sub.low ? 24 + 10 + textWidth(compact ? sub.low.name : `${sub.low.name}, standing in`, 11.5, 400) : 0
+  const fx = kx + keyW + 42 + textWidth(highName, 11.5, 600) + standW + 24
+  if (fa)
+    specs.push(
+      mark("pw:key:follow", fx, box.y - 16, 10, FOLLOW, { arc: 0, layer: 8 }),
+      txt("pw:key:followt", fx + 10, box.y - 16, short(fa.name, compact), { size: 11.5, weight: 600, color: FOLLOW })
+    )
   specs.push(
     mark("pw:key:low", kx + 5, box.y - 16, 10, BRICK, { arc: 0, layer: 8 }),
     txt("pw:key:lowt", kx + 15, box.y - 16, lowName, { size: 11.5, weight: 600, color: INK }),

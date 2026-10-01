@@ -55,6 +55,8 @@ export type Area = {
   decile: number | null
   /** Circumstance values keyed by factor, England only. */
   f: Record<string, number | null>
+  /** Latest healthy life expectancy (published for upper-tier areas only) and avoidable deaths under 75 per 100,000 (England and Wales). */
+  why: Record<Sex, { hle: number | null; av: number | null }>
 }
 
 export type Factor = {
@@ -193,6 +195,8 @@ export function computeFilm({ le, hle, avoidable, evidence, hex, intl }: Raw) {
     (file.values[code]?.[SEXES[sex]]?.[dim] ?? []).map((p) => p[0])
 
   const decileOf = tenths(evidence, "ltla", (code) => Boolean(le.values[code]))
+  const last = (file: Packed, code: string, sex: Sex, dim: string) => file.values[code]?.[SEXES[sex]]?.[dim]?.[file.periods.length - 1]?.[0] ?? null
+  const whyOf = (code: string, sex: Sex) => ({ hle: last(hle, code, sex, "birth"), av: round(last(avoidable, code, sex, "avoidable"), 1) })
   const areas: Area[] = le.areas
     .filter((a) => a.grain === "ltla" && hex.hexes[a.code])
     .map((a) => ({
@@ -205,6 +209,7 @@ export function computeFilm({ le, hle, avoidable, evidence, hex, intl }: Raw) {
       female: series(le, a.code, "female").map((v) => round(v, 1)),
       decile: decileOf.get(a.code) ?? null,
       f: Object.fromEntries(FACTORS.map((k) => [k, a.nation === "E" ? (evidence.ltla[a.code]?.[k] ?? null) : null])),
+      why: { male: whyOf(a.code, "male"), female: whyOf(a.code, "female") },
     }))
 
   const uk = { male: series(le, UK, "male") as number[], female: series(le, UK, "female") as number[] }
