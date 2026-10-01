@@ -24,7 +24,7 @@ export default async function AboutPage() {
           <a className="link" href={ONS_LINKS.ogl}>
             Open Government Licence v3.0
           </a>
-          . OECD figures use CC BY 4.0. Numbers in the film and long version are computed from these files when the site is built.
+          . OECD figures use CC BY 4.0. Numbers in the story and long version are computed from these files when the site is built.
         </p>
       </header>
 
@@ -179,7 +179,7 @@ export default async function AboutPage() {
         </p>
         <Links items={[
           ["OECD Health Statistics", "https://data-explorer.oecd.org/"],
-          ["Data used by the film", "/data/intl.json"],
+          ["Data used by the story", "/data/intl.json"],
           ["CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/"],
         ]} />
       </Section>

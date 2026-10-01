@@ -561,7 +561,7 @@ function Begin({ onBegin, onPlay, playing, hint }: { onBegin: () => void; onPlay
             </svg>
           )}
         </span>
-        {playing ? "Playing as a film" : "Play as a film"}
+        {playing ? "Playing automatically" : "Play automatically"}
       </button>
       {hint ? <p className="w-full text-[12.5px] text-ink-3">Or scroll, swipe or use the arrow keys.</p> : null}
     </div>
@@ -725,7 +725,7 @@ function Rail({
       className="absolute inset-x-0 bottom-0 z-30 flex items-center gap-4 border-t border-ink/[0.07] bg-paper/90 backdrop-blur-sm"
       style={{ height: lay.rail, paddingLeft: lay.side, paddingRight: lay.side }}
     >
-      <RoundButton label={playing ? "Pause" : "Play as a film"} onClick={onPlay}>
+      <RoundButton label={playing ? "Pause" : "Play automatically"} onClick={onPlay}>
         {playing ? <path d="M6 4v8M10 4v8" /> : <path d="M5.5 3.5v9l7-4.5z" fill="currentColor" />}
       </RoundButton>
       {lay.mode === "wide" ? (
