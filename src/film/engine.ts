@@ -102,6 +102,8 @@ export type PathSpec = Common & {
   draw?: number
   /** Close and fill the shape in `color` instead of stroking it. */
   area?: boolean
+  /** Draws finished segments from a shared cached bitmap; for hundreds of faint lines that grow with time. */
+  bake?: boolean
 }
 
 export type Spec = MarkSpec | TextSpec | LineSpec | PathSpec
@@ -167,6 +169,32 @@ type Node = {
   arc: number
   leaving: boolean
   done: boolean
+  /** True while a path's points move between two shapes, so it can't be baked. */
+  morph?: boolean
+  /** Last CSS colour per state offset, reused while the colour holds still. */
+  css?: Record<number, { l: number; a: number; b: number; s: string }>
+}
+
+const NO_DASH: number[] = []
+/** Below this many bakeable paths, drawing them live is cheap enough. */
+const BAKE_MIN = 40
+
+type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
+
+/** True when two point lists match, NaN gaps included. */
+function samePts(a: Float64Array | undefined, b: Float64Array | undefined) {
+  if (!a || !b || a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i] && !(Number.isNaN(a[i]) && Number.isNaN(b[i]))) return false
+  return true
+}
+
+/** Stable ids for point arrays, so a cache key can tell when a path's points were replaced. */
+const ptsIds = new WeakMap<Float64Array, number>()
+let nextPtsId = 0
+const ptsId = (p: Float64Array) => {
+  let id = ptsIds.get(p)
+  if (id === undefined) ptsIds.set(p, (id = nextPtsId++))
+  return id
 }
 
 const SIZE: Record<Spec["kind"], number> = { mark: M.n, text: T.n, line: L.n, path: P.n }
@@ -344,6 +372,7 @@ export class Engine {
     if (n.curPts) {
       n.fromPts = n.curPts.slice()
       n.toPts = n.curPts.slice()
+      n.morph = false
     }
     n.t0 = now
     n.delay = (n.spec.exitDelay ?? 0) * this.speed
@@ -369,6 +398,7 @@ export class Engine {
         const to = Float64Array.from(s.pts)
         n.fromPts = n.curPts && n.curPts.length === to.length ? n.curPts.slice() : resample(n.curPts ?? to, to.length / 2)
         n.toPts = to
+        n.morph = !samePts(n.fromPts, to)
       }
       if (n.spec.layer !== s.layer) this.dirtyOrder = true
       n.spec = s
@@ -402,6 +432,7 @@ export class Engine {
         const to = Float64Array.from(s.pts)
         if (!n.fromPts || n.fromPts.length !== to.length) n.fromPts = resample(n.curPts ?? to, to.length / 2)
         n.toPts = to
+        n.morph = !samePts(n.fromPts, to)
       }
       n.spec = s
       if (n.done) {
@@ -481,6 +512,68 @@ export class Engine {
     return best
   }
 
+  private bake: { canvas: OffscreenCanvas | HTMLCanvasElement; key: string } | null = null
+
+  /**
+   * Draws the finished segments of every bakeable path into one bitmap, redrawn only when one of them
+   * changes: a new period reached, a new colour or alpha, new points. Returns the paths it covers.
+   */
+  private bakeLayer(width: number, height: number, dpr: number, clip?: { x: number; y: number; w: number; h: number }): Set<Node> {
+    const nodes = this.sorted.filter((n) => n.spec.kind === "path" && n.spec.bake && !n.spec.area && !n.leaving && n.curPts && (n.done || !n.morph))
+    if (nodes.length < BAKE_MIN) return new Set()
+    const w = Math.round(width * dpr)
+    const h = Math.round(height * dpr)
+    const full = (n: Node) => {
+      const count = (n.curPts as Float64Array).length / 2
+      return Math.floor(n.cur[P.d] * (count - 1))
+    }
+    const parts = [`${w}x${h}@${dpr}`, clip ? `${clip.x},${clip.y},${clip.w},${clip.h}` : ""]
+    for (const n of nodes) {
+      const c = n.cur
+      const s = n.spec as PathSpec
+      parts.push(`${n.id}|${full(n)}|${c[P.a].toFixed(3)}|${c[P.w].toFixed(2)}|${this.colour(n, P.col)}|${ptsId(n.curPts as Float64Array)}|${s.dash ?? ""}`)
+    }
+    const key = parts.join(";")
+    if (this.bake?.key !== key) {
+      let canvas = this.bake?.canvas
+      if (!canvas) canvas = document.createElement("canvas")
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w
+        canvas.height = h
+      }
+      const bctx = canvas.getContext("2d") as Ctx2D | null
+      if (!bctx) return new Set()
+      bctx.setTransform(1, 0, 0, 1, 0, 0)
+      bctx.clearRect(0, 0, w, h)
+      bctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      bctx.save()
+      if (clip) {
+        bctx.beginPath()
+        bctx.rect(clip.x, clip.y, clip.w, clip.h)
+        bctx.clip()
+      }
+      bctx.lineCap = "round"
+      bctx.lineJoin = "round"
+      for (const n of nodes) this.drawPath(bctx, n, n.spec as PathSpec, 0, full(n))
+      bctx.restore()
+      this.bake = { canvas, key }
+    }
+    return new Set(nodes)
+  }
+
+  /** CSS colour at a state offset; recomputed only when the colour moves. */
+  private colour(n: Node, i: number) {
+    const c = n.cur
+    const m = n.css?.[i]
+    if (m && m.l === c[i] && m.a === c[i + 1] && m.b === c[i + 2]) return m.s
+    const s = css(c, i)
+    ;(n.css ??= {})[i] = { l: c[i], a: c[i + 1], b: c[i + 2], s }
+    return s
+  }
+
+  /** Text state last set on the context this frame, so unchanged settings aren't re-parsed. */
+  private font: { font: string; align: CanvasTextAlign; baseline: CanvasTextBaseline; spacing: string } | null = null
+
   /** Current position of a node, for HTML overlays. */
   position(id: string): { x: number; y: number } | null {
     const n = this.nodes.get(id)
@@ -497,6 +590,9 @@ export class Engine {
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, width, height)
+    ctx.lineCap = "round"
+    ctx.lineJoin = "round"
+    this.font = null
     this.pulsing = false
     let clipped = false
     if (clip) {
@@ -506,9 +602,34 @@ export class Engine {
       ctx.clip()
       clipped = true
     }
+    const baked = this.bakeLayer(width, height, dpr, clip)
+    let blitted = false
     for (const n of this.sorted) {
+      if (baked.has(n)) {
+        // The shared bitmap goes down where the first baked path would; each path then adds only its growing tip.
+        if (!blitted && this.bake) {
+          ctx.save()
+          ctx.setTransform(1, 0, 0, 1, 0, 0)
+          ctx.globalAlpha = 1
+          ctx.drawImage(this.bake.canvas, 0, 0)
+          ctx.restore()
+          blitted = true
+        }
+        const pts = n.curPts as Float64Array
+        const end = n.cur[P.d] * (pts.length / 2 - 1)
+        if (end > Math.floor(end)) {
+          ctx.lineCap = "butt"
+          this.drawPath(ctx, n, n.spec as PathSpec, Math.floor(end))
+          ctx.lineCap = "round"
+        }
+        continue
+      }
       if (clipped && (n.spec.layer ?? 0) >= 10) {
+        // Restore drops the caps, joins and text state set since the clip.
         ctx.restore()
+        ctx.lineCap = "round"
+        ctx.lineJoin = "round"
+        this.font = null
         clipped = false
       }
       switch (n.spec.kind) {
@@ -546,7 +667,7 @@ export class Engine {
     ctx.globalAlpha = a
     const filled = s.fill !== "none"
     if (filled) {
-      ctx.fillStyle = css(c, M.fill)
+      ctx.fillStyle = this.colour(n, M.fill)
       ctx.fill()
       if (s.hatch && this.hatch) {
         ctx.fillStyle = this.hatch
@@ -555,7 +676,7 @@ export class Engine {
     }
     if (c[M.sw] > 0.02) {
       ctx.lineWidth = c[M.sw]
-      ctx.strokeStyle = css(c, M.stroke)
+      ctx.strokeStyle = this.colour(n, M.stroke)
       ctx.stroke()
     }
     if (s.hit !== undefined && s.hit === this.hover) {
@@ -573,7 +694,7 @@ export class Engine {
       ctx.arc(c[M.x], c[M.y], w / 2 + 14 * (1 - (1 - k) ** 2), 0, Math.PI * 2)
       ctx.globalAlpha = a * 0.55 * (1 - k)
       ctx.lineWidth = 1.5
-      ctx.strokeStyle = css(c, M.stroke)
+      ctx.strokeStyle = this.colour(n, M.stroke)
       ctx.stroke()
       this.pulsing = true
     }
@@ -585,19 +706,24 @@ export class Engine {
     if (a < 0.003) return
     const text = s.value !== undefined && s.format ? s.format(c[T.v]) : s.text
     const family = s.font === "display" ? this.fonts.display : this.fonts.sans
-    ctx.font = `${s.italic ? "italic " : ""}${s.weight ?? 400} ${c[T.size]}px ${family}`
-    ctx.textAlign = s.align ?? "left"
-    ctx.textBaseline = s.baseline ?? "middle"
-    ctx.letterSpacing = s.caps ? "0.12em" : "0px"
+    const font = `${s.italic ? "italic " : ""}${s.weight ?? 400} ${c[T.size]}px ${family}`
+    const align = s.align ?? "left"
+    const baseline = s.baseline ?? "middle"
+    const spacing = s.caps ? "0.12em" : "0px"
+    const f = this.font
+    if (f?.font !== font) ctx.font = font
+    if (f?.align !== align) ctx.textAlign = align
+    if (f?.baseline !== baseline) ctx.textBaseline = baseline
+    if (f?.spacing !== spacing) ctx.letterSpacing = spacing
+    this.font = { font, align, baseline, spacing }
     const str = s.caps ? text.toUpperCase() : text
     ctx.globalAlpha = a
     if (s.halo) {
       ctx.lineWidth = 4
-      ctx.lineJoin = "round"
       ctx.strokeStyle = this.paper
       ctx.strokeText(str, c[T.x], c[T.y])
     }
-    ctx.fillStyle = css(c, T.col)
+    ctx.fillStyle = this.colour(n, T.col)
     ctx.fillText(str, c[T.x], c[T.y])
   }
 
@@ -608,17 +734,17 @@ export class Engine {
     if (a < 0.003 || d < 0.001 || c[L.w] < 0.02) return
     ctx.globalAlpha = a
     ctx.lineWidth = c[L.w]
-    ctx.lineCap = "round"
-    ctx.strokeStyle = css(c, L.col)
-    ctx.setLineDash(s.dash ?? [])
+    ctx.strokeStyle = this.colour(n, L.col)
+    if (s.dash) ctx.setLineDash(s.dash)
     ctx.beginPath()
     ctx.moveTo(c[L.x1], c[L.y1])
     ctx.lineTo(c[L.x1] + (c[L.x2] - c[L.x1]) * d, c[L.y1] + (c[L.y2] - c[L.y1]) * d)
     ctx.stroke()
-    ctx.setLineDash([])
+    if (s.dash) ctx.setLineDash(NO_DASH)
   }
 
-  private drawPath(ctx: CanvasRenderingContext2D, n: Node, s: PathSpec) {
+  /** Strokes points `from` to `upto` (a fractional index; defaults to the drawn share). */
+  private drawPath(ctx: Ctx2D, n: Node, s: PathSpec, from = 0, upto?: number) {
     const c = n.cur
     const pts = n.curPts
     const a = c[P.a]
@@ -637,27 +763,26 @@ export class Engine {
       }
       ctx.closePath()
       ctx.globalAlpha = a
-      ctx.fillStyle = css(c, P.col)
+      ctx.fillStyle = this.colour(n, P.col)
       ctx.fill()
       return
     }
-    const end = c[P.d] * (count - 1)
+    const end = upto ?? c[P.d] * (count - 1)
+    if (end <= from && from > 0) return
     ctx.globalAlpha = a
     ctx.lineWidth = c[P.w]
-    ctx.lineCap = "round"
-    ctx.lineJoin = "round"
-    ctx.strokeStyle = css(c, P.col)
-    ctx.setLineDash(s.dash ?? [])
+    ctx.strokeStyle = this.colour(n, P.col)
+    if (s.dash) ctx.setLineDash(s.dash)
     ctx.beginPath()
     let pen = false
-    for (let i = 0; i < count && i <= Math.ceil(end); i += 1) {
+    for (let i = from; i < count && i <= Math.ceil(end); i += 1) {
       let x = pts[i * 2]
       let y = pts[i * 2 + 1]
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         pen = false
         continue
       }
-      if (i > end && i > 0) {
+      if (i > end && i > from) {
         const px = pts[i * 2 - 2]
         const py = pts[i * 2 - 1]
         if (!Number.isFinite(px) || !Number.isFinite(py)) break
@@ -670,6 +795,6 @@ export class Engine {
       pen = true
     }
     ctx.stroke()
-    ctx.setLineDash([])
+    if (s.dash) ctx.setLineDash(NO_DASH)
   }
 }
