@@ -10,7 +10,8 @@ export const PAPER = "#f4f4f0"
 export const HEALTHY = "#3b6a8c"
 /** The place the reader follows, in every scene. */
 export const FOLLOW = "#2256d1"
-export const POOR = "#d8d2c4"
+/** Years not in good health: a pale tint of HEALTHY, so the bar reads as one lifespan. */
+export const POOR = "#cfd8dc"
 export const NO_DATA = "#cfcdc6"
 
 /** Worse ↔ better for every gap and change: brick (shorter, falling) through warm grey to teal (longer, rising). */

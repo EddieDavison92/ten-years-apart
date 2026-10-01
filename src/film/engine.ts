@@ -45,6 +45,8 @@ export type MarkSpec = Common & {
   h?: number
   /** Corner radius; defaults to a circle or capsule. */
   rad?: number
+  /** Squares off the corners on one side, so two marks join into one bar. */
+  flat?: "left" | "right"
   fill: string
   stroke?: string
   strokeW?: number
@@ -538,8 +540,8 @@ export class Engine {
     const y = c[M.y] - h / 2
     const rad = Math.max(0, Math.min(c[M.rad], w / 2, h / 2))
     ctx.beginPath()
-    if (Math.abs(w - h) < 0.01 && rad >= w / 2 - 0.01) ctx.arc(c[M.x], c[M.y], w / 2, 0, Math.PI * 2)
-    else if (rad > 0.01) ctx.roundRect(x, y, w, h, rad)
+    if (!s.flat && Math.abs(w - h) < 0.01 && rad >= w / 2 - 0.01) ctx.arc(c[M.x], c[M.y], w / 2, 0, Math.PI * 2)
+    else if (rad > 0.01) ctx.roundRect(x, y, w, h, s.flat === "left" ? [0, rad, rad, 0] : s.flat === "right" ? [rad, 0, 0, rad] : rad)
     else ctx.rect(x, y, w, h)
     ctx.globalAlpha = a
     const filled = s.fill !== "none"
