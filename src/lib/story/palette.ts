@@ -20,7 +20,7 @@ export const POOR_FILL = "repeating-linear-gradient(135deg, rgba(17,19,21,0.09) 
  * Worse ↔ better, used for every gap and change on the site:
  * brick (shorter, falling) through a warm grey to teal (longer, rising).
  */
-export const DIVERGING = ["#7a1f14", "#b3452c", "#dc8466", "#efc2ad", "#e6e4de", "#b9ddd2", "#6fb6a1", "#2a8a76", "#0b5a4c"]
+export const DIVERGING = ["#7a1f14", "#b3452c", "#dc8466", "#efc2ad", "#e6e4de", "#b3dbdf", "#64b0b8", "#1e8590", "#075862"]
 export const divergingColour = interpolateRgbBasis(DIVERGING)
 export const CHANGE_RAMP = DIVERGING
 export const changeColour = divergingColour

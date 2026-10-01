@@ -90,7 +90,7 @@ function Mark() {
   return (
     <svg viewBox="0 0 22 10" className="h-2.5 w-[22px] translate-y-[-1px]" aria-hidden>
       <circle cx="4" cy="5" r="4" fill="#b3452c" />
-      <circle cx="18" cy="5" r="4" fill="#0b5a4c" />
+      <circle cx="18" cy="5" r="4" fill="#075862" />
     </svg>
   )
 }
@@ -115,7 +115,7 @@ function StoryIcon({ on }: IconProps) {
     <svg {...base}>
       <path d="M7 12h10M9.5 10.6v2.8M12 10v4M14.5 10.6v2.8" />
       <circle cx="4.5" cy="12" r="2.5" fill={on ? "#b3452c" : "none"} stroke={on ? "#b3452c" : "currentColor"} />
-      <circle cx="19.5" cy="12" r="2.5" fill={on ? "#0b5a4c" : "none"} stroke={on ? "#0b5a4c" : "currentColor"} />
+      <circle cx="19.5" cy="12" r="2.5" fill={on ? "#075862" : "none"} stroke={on ? "#075862" : "currentColor"} />
     </svg>
   )
 }
@@ -126,8 +126,8 @@ function AtlasIcon({ on }: IconProps) {
     <svg {...base}>
       <g transform="translate(0 0.7)">
         <path d="M12 6.1v4.2l-3.64 2.1-3.63-2.1V6.1l3.63-2.1z" fill={on ? "#b3452c" : "none"} />
-        <path d="M19.27 6.1v4.2l-3.63 2.1-3.64-2.1V6.1l3.64-2.1z" fill={on ? "#0b5a4c" : "none"} />
-        <path d="M15.64 12.4v4.2L12 18.7l-3.64-2.1v-4.2l3.64-2.1z" fill={on ? "#6fb6a1" : "none"} />
+        <path d="M19.27 6.1v4.2l-3.63 2.1-3.64-2.1V6.1l3.64-2.1z" fill={on ? "#075862" : "none"} />
+        <path d="M15.64 12.4v4.2L12 18.7l-3.64-2.1v-4.2l3.64-2.1z" fill={on ? "#64b0b8" : "none"} />
       </g>
     </svg>
   )

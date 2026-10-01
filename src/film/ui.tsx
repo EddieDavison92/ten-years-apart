@@ -9,7 +9,7 @@ export function Mark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 22 10" className={cn("h-2.5 w-[22px]", className)} aria-hidden>
       <circle cx="4" cy="5" r="4" fill="#b3452c" />
-      <circle cx="18" cy="5" r="4" fill="#0b5a4c" />
+      <circle cx="18" cy="5" r="4" fill="#075862" />
     </svg>
   )
 }

@@ -7,7 +7,7 @@ export const TEAL_RAMP = ["#eaf0ea", "#c8dfd4", "#99c7b5", "#66aa94", "#3f8d77",
 export const AVOIDABLE_RAMP = ["#f7efe1", "#efd9b8", "#e5bb8e", "#d6966a", "#c0714c", "#9e5035", "#763723"] as const
 
 /** Change and gaps: brick (lower) through warm grey to teal (higher). */
-export const DIVERGING_RAMP = ["#7a1f14", "#b3452c", "#dc8466", "#efc2ad", "#e6e4de", "#b9ddd2", "#6fb6a1", "#2a8a76", "#0b5a4c"] as const
+export const DIVERGING_RAMP = ["#7a1f14", "#b3452c", "#dc8466", "#efc2ad", "#e6e4de", "#b3dbdf", "#64b0b8", "#1e8590", "#075862"] as const
 
 export const DIVERGING_RAMP_REVERSED = [...DIVERGING_RAMP].reverse()
 

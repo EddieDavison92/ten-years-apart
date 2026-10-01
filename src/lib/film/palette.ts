@@ -15,7 +15,7 @@ export const POOR = "#cfd8dc"
 export const NO_DATA = "#cfcdc6"
 
 /** Worse ↔ better for every gap and change: brick (shorter, falling) through warm grey to teal (longer, rising). */
-export const DIVERGING = ["#7a1f14", "#b3452c", "#dc8466", "#efc2ad", "#e6e4de", "#b9ddd2", "#6fb6a1", "#2a8a76", "#0b5a4c"]
+export const DIVERGING = ["#7a1f14", "#b3452c", "#dc8466", "#efc2ad", "#e6e4de", "#b3dbdf", "#64b0b8", "#1e8590", "#075862"]
 export const diverging = interpolateRgbBasis(DIVERGING)
 export const BRICK = DIVERGING[1]
 export const TEAL = DIVERGING[8]

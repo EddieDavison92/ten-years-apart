@@ -7,7 +7,7 @@ import { useTween } from "@/components/story/use-tween"
 import { INK, INK_3, LINE, PAPER } from "@/lib/story/palette"
 
 export const LOW = "#b3452c"
-export const HIGH = "#0b5a4c"
+export const HIGH = "#075862"
 const EASE = "cubic-bezier(0.65,0,0.25,1)"
 const short = (p: string) => p.replace(/^(\d{4}) to \d{2}(\d{2})$/, "$1–$2")
 
