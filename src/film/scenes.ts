@@ -81,6 +81,8 @@ const txt = (id: string, x: number, y: number, text: string, o: Partial<TextSpec
   dur: 900,
   ...o,
 })
+/** X-axis title, under the axis at its right end. */
+const X_TITLE: Partial<TextSpec> = { align: "right", size: 12.5, weight: 600, color: INK_2 }
 const line = (id: string, x1: number, y1: number, x2: number, y2: number, o: Partial<LineSpec> = {}): LineSpec => ({
   kind: "line",
   id,
@@ -326,7 +328,7 @@ function open(c: Ctx): Spec[] {
   specs.push(line("age:base", x(0), axisY - 14, x(90), axisY - 14, { color: LINE, layer: 0 }))
   const leTicks = scaleLinear().domain(leDomain(c)).ticks(c.narrow ? 5 : 8)
   specs.push(...xTicks("age", x, [0, 10, 20, 30, 40, 50, 60, 70, 80, 90], axisY, { ghosts: { key: "x", ticks: leTicks } }))
-  specs.push(txt("age:title", x(90), axisY + 20, "Age, years", { align: "right", size: 10.5 }))
+  specs.push(txt("age:title", x(90), axisY + 20, "Age, years", X_TITLE))
   specs.push(txt(`title:open:${sex}`, x(0), top - 26, `${who(sex)} · life expectancy at birth · ${data.periods[now(c)]}`, { size: 10, caps: true, weight: 600 }))
   return specs
 }
@@ -412,7 +414,7 @@ function swarm(c: Ctx): Spec[] {
   const ticks = x.ticks(c.narrow ? 5 : 8).filter((t) => t >= dom[0] && t <= dom[1])
   specs.push(line("age:base", x(dom[0]), axisY - 14, x(dom[1]), axisY - 14, { color: LINE, layer: 0 }))
   specs.push(...xTicks("x", x, ticks, axisY, { ghosts: { key: "age", ticks: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90] } }))
-  specs.push(txt(`xt:le:${sex}`, x(dom[1]), axisY + 20, `${who(sex)}, life expectancy at birth, ${data.periods[now(c)]} →`, { align: "right", size: 10.5 }))
+  specs.push(txt(`xt:le:${sex}`, x(dom[1]), axisY + 20, `${who(sex)}, life expectancy at birth, ${data.periods[now(c)]} →`, X_TITLE))
   const fi = c.follow ? areaIndex(c, c.follow) : -1
   if (fi >= 0 && c.follow !== low && c.follow !== high && pos[fi])
     specs.push(...followSpecs(c, pos[fi], r, years(value(data.areas[fi], c)), "above", { ...swarmAt(pos[fi] as Pt), enterDelay: 700 + ranks[fi] * 4.5 }))
@@ -657,7 +659,7 @@ function stallChart(c: Ctx, stage: Stage): Spec[] {
     if (stage === "pair" && !special && !followed) {
       // Each dot from the scatter flies to where its own line ends, then gives way to the line.
       const v = value(a, c)
-      specs.push(path(`tr:${a.code}`, trails[i], { color: col, alpha: 0.1, width: 1, draw: 1, layer: 1, enterDelay: 900, dur: 1200 }))
+      specs.push(path(`tr:${a.code}`, trails[i], { color: col, alpha: 0.1, width: 1, draw: 1, layer: 1, enterDelay: 900, dur: 1200, bake: true }))
       if (v !== null) specs.push(mark(`a:${a.code}`, x(LAST), y(v), 4, col, { alpha: 0, dur: 1300, delay: Math.abs(Math.sin(i * 5.1)) * 350, layer: 3 }))
       return
     }
@@ -669,6 +671,7 @@ function stallChart(c: Ctx, stage: Stage): Spec[] {
         width: special ? (stage === "pair" ? 3 : 2.25) : followed ? 2 : 1,
         draw,
         layer: special || followed ? 4 : 1,
+        bake: !special && !followed,
       })
     )
     const v = at(a[sex], t)
@@ -954,7 +957,7 @@ function room(c: Ctx): Spec[] {
   specs.push(
     line("rm:zero", left - 6, y(0), right, y(0), { width: 1.25, alpha: 0.6, layer: 1, enter: "draw", enterDelay: 300 }),
     txt(`yt:room:${sex}`, left - 12, top - 26, c.narrow ? `${who(sex)} · gained 2011–19` : `${who(sex)} · years of life expectancy gained, 2011 to 2019`, { size: 10, caps: true, weight: 600 }),
-    txt("rm:xt", right, bottom + 40, "Life expectancy in 2011, years →", { align: "right", size: 10.5 })
+    txt("rm:xt", right, bottom + 40, "Life expectancy in 2011, years →", X_TITLE)
   )
   const uk = pts.find((d) => d.code === "GBR")!
   // The band of similar starting points.
@@ -1282,7 +1285,7 @@ function tenths(c: Ctx, mode: "level" | "change"): Spec[] {
   if (mode === "level") {
     const ticks = x.ticks(c.narrow ? 4 : 7).filter((t) => t >= dom[0] && t <= dom[1])
     specs.push(...xTicks("x", x, ticks, axisY, { grid: [g.top, g.bottom] }))
-    specs.push(txt(`xt:le:${sex}`, g.right, axisY + 20, `${who(sex)}, life expectancy at birth →`, { align: "right", size: 10.5 }))
+    specs.push(txt(`xt:le:${sex}`, g.right, axisY + 20, `${who(sex)}, life expectancy at birth →`, X_TITLE))
   } else {
     specs.push(...xTicks("xc", x, [-2, -1, 0, 1, 2], axisY, { fmt: (v) => signed(v, 0), grid: [g.top, g.bottom] }))
     specs.push(
@@ -1290,7 +1293,7 @@ function tenths(c: Ctx, mode: "level" | "change"): Spec[] {
       txt("fell", x(0) - 8, g.top - 12, "← fell", { align: "right", size: 11.5, weight: 600, color: BRICK, enterDelay: 700 }),
       txt("rose", x(0) + 8, g.top - 12, "rose →", { size: 11.5, weight: 600, color: TEAL, enterDelay: 700 }),
       txt("avg:title", c.box.x + c.box.w, g.top - 12, c.narrow ? "Avg" : "Average", { align: "right", size: 10, caps: true, weight: 600 }),
-      txt("xt:change", g.right, axisY + 20, `Change in ${who(sex).toLowerCase()}'s life expectancy since 2011–13, years →`, { align: "right", size: 10.5 })
+      txt("xt:change", g.right, axisY + 20, `Change in ${who(sex).toLowerCase()}'s life expectancy since 2011–13, years →`, X_TITLE)
     )
   }
   const fi = c.follow ? areaIndex(c, c.follow) : -1
@@ -1445,7 +1448,7 @@ function avoidable(c: Ctx): Spec[] {
   const axisY = g.bottom + 22
   specs.push(...xTicks("avx", x, x.ticks(c.narrow ? 4 : 5), axisY, { grid: [g.top - 8, g.bottom] }))
   specs.push(
-    txt("avx:title", g.right, axisY + 20, "Deaths per 100,000 a year, age-standardised →", { align: "right", size: 10.5 }),
+    txt("avx:title", g.right, axisY + 20, "Deaths per 100,000 a year, age-standardised →", X_TITLE),
     txt(`av:title:${sex}`, g.labelX, g.top - 38, `${who(sex)} · avoidable deaths under 75 · by deprivation tenth`, { size: 10, caps: true, weight: 600 }),
     mark("av:k1", g.left + 6, g.top - 16, 12, "none", { stroke: INK_3, strokeW: 1.5, arc: 0, layer: 8 }),
     txt("av:k1t", g.left + 17, g.top - 16, data.avoidable.then, { size: 11, color: INK_2 }),
@@ -1500,7 +1503,7 @@ function healthy(c: Ctx): Spec[] {
   specs.push(...rowLabels(c, g, 10, followRow))
   const axisY = g.bottom + 22
   specs.push(...xTicks("age", x, [0, 20, 40, 60, 80], axisY, { grid: [g.top, g.bottom] }))
-  specs.push(txt("age:title", g.right, axisY + 20, `Years from birth, ${data.healthy.period} →`, { align: "right", size: 10.5 }))
+  specs.push(txt("age:title", g.right, axisY + 20, `Years from birth, ${data.healthy.period} →`, X_TITLE))
   const keyY = g.top - 44
   specs.push(
     txt("hl:title", g.labelX, keyY, `${who(sex)} · upper-tier areas by deprivation tenth`, { size: 10, caps: true, weight: 600 }),
@@ -1550,7 +1553,7 @@ function scatter(c: Ctx): Spec[] {
     txt("sc:key:hi", keyX + 9 * 11 + 8, keyY + 14, "10 least", { size: 9.5, color: INK_3, halo: true, align: "right", enterDelay: 1600 })
   )
   specs.push(
-    txt(`xt:${f.key}`, right, bottom + 40, `${f.label}, ${f.period} →`, { align: "right", size: 10.5 }),
+    txt(`xt:${f.key}`, right, bottom + 40, `${f.label}, ${f.period} →`, X_TITLE),
     txt(`yt:sc:${sex}`, left - 12, top - 22, `${who(sex)} · life expectancy at birth`, { size: 10, caps: true, weight: 600 })
   )
   const { low, high } = pairCodes(c)
