@@ -8,7 +8,7 @@ export default function NotFound() {
       <p className="text-lg text-ink-2">That page doesn&apos;t exist. The story, the atlas and every area report do.</p>
       <div className="flex gap-3 text-sm">
         <Link href="/" className="rounded-full bg-ink px-5 py-2.5 text-paper hover:bg-ink/85">
-          Watch the film
+          Start the story
         </Link>
         <Link href="/explore" className="rounded-full border border-line px-5 py-2.5 text-ink hover:border-ink/30">
           Open the atlas

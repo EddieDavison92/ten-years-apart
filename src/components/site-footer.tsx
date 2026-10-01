@@ -16,7 +16,7 @@ export function SiteFooter() {
           </p>
         </div>
         <nav className="flex flex-wrap gap-x-6 gap-y-2 md:justify-end">
-          <Link className="hover:text-ink" href="/">Film</Link>
+          <Link className="hover:text-ink" href="/">Story</Link>
           <Link className="hover:text-ink" href="/story">Long version</Link>
           <Link className="hover:text-ink" href="/explore">Atlas</Link>
           <Link className="hover:text-ink" href="/evidence">Evidence</Link>

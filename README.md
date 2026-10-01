@@ -6,7 +6,7 @@ UK statistics and boundaries are reused under the [Open Government Licence v3.0]
 
 ## Pages
 
-- **Film** (`/`): eight chapters and 22 scenes. The same dots move through the gap between places, the stall after 2011, the UK among OECD members, deprivation, healthy years and local circumstances. Controls include autoplay, arrow keys, scroll, swipe, a men/women switch and following a place.
+- **Story** (`/`): eight chapters and 22 scenes. The same dots move through the gap between places, the stall after 2011, the UK among OECD members, deprivation, healthy years and local circumstances. Controls include automatic play, arrow keys, scroll, swipe, a men/women switch and following a place.
 - **Long version** (`/story`): the original scrolling data essay, retained as an archive.
 - **Area reports** (`/area/[code]`): a statically generated page for every local authority and English county.
 - **Atlas** (`/explore`): full-screen map of every measure and period, with a histogram legend and period player.
