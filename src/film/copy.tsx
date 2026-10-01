@@ -132,9 +132,9 @@ export function copyFor(id: string, { data, sex, factor }: CopyCtx): Copy {
         finding: clustered ? "Shorter lives cluster: most of Scotland and Wales sits below the UK figure, most of England above." : undefined,
         body: (
           <>
-            The same dots, set roughly where each place sits on the map. <span className="font-semibold text-brick">Brick</span> is
-            shorter than the UK figure of {years(stall[sex].now)} years, <span className="font-semibold text-teal">teal</span> longer.{" "}
-            {S.below} of Scotland&apos;s {S.n} areas are brick for {w.plural}, {Wl.below} of Wales&apos;s {Wl.n} and {E.below} of
+            The same dots, set roughly where each place sits on the map. <span className="font-semibold text-brick">Red</span> is
+            shorter than the UK figure of {years(stall[sex].now)} years, <span className="font-semibold text-teal">green</span> longer.{" "}
+            {S.below} of Scotland&apos;s {S.n} areas are red for {w.plural}, {Wl.below} of Wales&apos;s {Wl.n} and {E.below} of
             England&apos;s {E.n}.
           </>
         ),

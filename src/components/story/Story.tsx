@@ -135,8 +135,8 @@ export function Story({ data }: { data: StoryData }) {
             <p>
               Each of the {data.areas.length} dots is a UK local authority, set roughly where it sits on the map. Colour
               shows how far {who.adj} life expectancy in 2022–24 sits from the UK figure of {formatYears(reference[sex])}{" "}
-              years: <span className="font-semibold text-[#b3452c]">brick</span> for shorter,{" "}
-              <span className="font-semibold text-[#2a8a76]">teal</span> for longer.
+              years: <span className="font-semibold text-[#b3452c]">red</span> for shorter,{" "}
+              <span className="font-semibold text-[#2a8a76]">green</span> for longer.
             </p>
             <p>
               The ringed dots are the ten highest and ten lowest. {topTen === 10 ? "All ten" : capital(words(topTen))} of the

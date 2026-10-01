@@ -182,7 +182,7 @@ export default async function AreaPage({ params }: { params: Promise<{ code: str
           title="Local circumstances"
           dek={`Latest OHID figures against England (grey tick). The shaded band is the middle half of ${
             report.factorGrain === "ltla" ? "English local authorities" : "English upper-tier authorities"
-          }; teal is better than England, red worse. These travel with life expectancy but don't explain it on their own.`}
+          }; green is better than England, red worse. These travel with life expectancy but don't explain it on their own.`}
         >
           <Circumstances rows={report.factors.filter((f) => !f.outcome)} peers={report.factorGrain === "ltla" ? "areas" : "upper-tier areas"} />
           <h3 className="mb-1 mt-10 text-sm font-medium text-ink">Deaths, age-standardised per 100,000</h3>
