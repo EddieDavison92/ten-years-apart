@@ -38,7 +38,7 @@ export function hexPositions(
  * Packs circles along x without overlap, alternating above and below a centre
  * line. Order of placement follows x so the swarm reads left to right.
  */
-export function dodge(xs: (number | null)[], radius: number, centre: number, maxSpread = Infinity): (Point | null)[] {
+export function dodge(xs: (number | null)[], radius: number, centre: number, maxSpread = Infinity, info?: { crowded: number }): (Point | null)[] {
   const out: (Point | null)[] = xs.map(() => null)
   const order = xs
     .map((x, i) => ({ x, i }))
@@ -48,14 +48,26 @@ export function dodge(xs: (number | null)[], radius: number, centre: number, max
   const d2 = (radius * 2) ** 2
   for (const { x, i } of order) {
     const near = placed.filter((p) => Math.abs(p.x - x) < radius * 2)
-    let best = 0
+    let best: number | null = null
+    // If no slot is clear, the one farthest from its neighbours, so dots never stack exactly.
+    let roomiest = 0
+    let room = -1
     for (let k = 0; k < 400; k += 1) {
       const offset = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * radius * 0.5
       if (Math.abs(offset) > maxSpread) continue
-      if (near.every((p) => (p.x - x) ** 2 + (p.y - offset) ** 2 >= d2 * 0.98)) {
+      const gap = Math.min(Infinity, ...near.map((p) => (p.x - x) ** 2 + (p.y - offset) ** 2))
+      if (gap >= d2 * 0.98) {
         best = offset
         break
       }
+      if (gap > room) {
+        room = gap
+        roomiest = offset
+      }
+    }
+    if (best === null) {
+      best = roomiest
+      if (info) info.crowded += 1
     }
     placed.push({ x, y: best })
     out[i] = { x, y: centre + best }

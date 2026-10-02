@@ -30,8 +30,17 @@ export function RankStrip({
   const colour = sex === "male" ? MALE : FEMALE
   const x = useMemo(() => d3.scaleLinear().domain(domain).range([PAD, width - PAD]), [domain, width])
   const H = width < 500 ? 150 : 120
-  const r = Math.max(2.2, Math.min(4, width / 180))
-  const pos = useMemo(() => dodge(distribution.map(([, v]) => x(v)), r, H / 2 - 6, H / 2 - 14), [distribution, r, x, H])
+  // Dots shrink, down to 1.6px, until every one has its own slot.
+  const { r, pos } = useMemo(() => {
+    const xs = distribution.map(([, v]) => x(v))
+    let r = Math.max(2.2, Math.min(4, width / 180))
+    for (;;) {
+      const info = { crowded: 0 }
+      const pos = dodge(xs, r, H / 2 - 6, H / 2 - 14, info)
+      if (info.crowded === 0 || r <= 1.6) return { r, pos }
+      r = Math.max(1.6, r * 0.9)
+    }
+  }, [distribution, x, width, H])
   const self = distribution.findIndex(([c]) => c === code)
   const selfPos = pos[self]
 
