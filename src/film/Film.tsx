@@ -389,9 +389,16 @@ function Player({ data, W, H }: { data: FilmData; W: number; H: number }) {
 
       {/* Caption */}
       {lay.mode === "wide" ? (
-        <div className="absolute z-20 flex flex-col justify-center" style={{ left: lay.side, top: lay.header, bottom: lay.rail, width: lay.capW }}>
-          {caption}
-        </div>
+        // The closing scene scrolls if its links don't fit; elsewhere the wheel moves between scenes.
+        scene.id === "close" ? (
+          <div data-scroll className="no-scrollbar absolute z-20 flex flex-col overflow-y-auto" style={{ left: lay.side, top: lay.header, bottom: lay.rail, width: lay.capW }}>
+            <div className="my-auto py-4">{caption}</div>
+          </div>
+        ) : (
+          <div className="absolute z-20 flex flex-col justify-center" style={{ left: lay.side, top: lay.header, bottom: lay.rail, width: lay.capW }}>
+            {caption}
+          </div>
+        )
       ) : lay.mode === "side" ? (
         <div data-scroll className="no-scrollbar absolute z-20 overflow-y-auto py-4" style={{ left: lay.side, top: lay.header, bottom: lay.rail, width: lay.capW }}>
           {caption}
@@ -643,15 +650,48 @@ function Close({
   onRestart: () => void
   onMethods: () => void
 }) {
+  const name = follow ? places.find((p) => p.code === follow)?.name : null
+  const card = "group flex items-center justify-between gap-4 rounded-2xl border transition"
+  const arrow = (
+    <svg viewBox="0 0 16 16" className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5" aria-hidden>
+      <path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
+      <p className="kicker">Keep exploring</p>
       <div>
-        <p className="kicker mb-2">{follow ? "Following" : "Follow your place"}</p>
-        <PlaceSearch places={places} value={follow} onChange={onFollow} placeholder="Type a local authority" />
-        <p className="mt-2 text-[12.5px] text-ink-3">It stays marked in every scene if you watch again.</p>
+        <PlaceSearch places={places} value={follow} onChange={onFollow} placeholder="Find your local authority" />
+        <p className="mt-2 text-[12.5px] text-ink-3">{follow ? "Marked in every scene if you watch again." : "Pick a place to follow it through every scene."}</p>
       </div>
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[13.5px] font-medium">
-        <button type="button" onClick={onRestart} className="flex items-center gap-2 text-ink transition hover:text-ink-2">
+      <Link href={follow ? `/area/${follow}` : "/explore"} className={cn(card, "border-ink bg-ink px-5 py-4 text-paper hover:bg-[#23272b]")}>
+        <span>
+          <span className="block text-[16px] font-semibold">{name ? `${name}: full area report` : "Explore every area on the map"}</span>
+          <span className="mt-0.5 block text-[13px] text-paper/70">
+            {name ? "Life expectancy, healthy years and circumstances, against England" : "Any place, any period, any measure"}
+          </span>
+        </span>
+        {arrow}
+      </Link>
+      <div className="grid grid-cols-2 gap-3">
+        {/* The primary card already opens the atlas when no place is followed. */}
+        <Link href={follow ? `/explore?area=${follow}` : "/evidence"} className={cn(card, "border-ink/15 bg-white/60 px-4 py-3 text-ink hover:border-ink/40")}>
+          <span>
+            <span className="block text-[14px] font-semibold">{follow ? "The atlas" : "The evidence"}</span>
+            <span className="block text-[12px] text-ink-3">{follow ? "Maps and trends" : "What travels with it"}</span>
+          </span>
+          {arrow}
+        </Link>
+        <Link href="/story" className={cn(card, "border-ink/15 bg-white/60 px-4 py-3 text-ink hover:border-ink/40")}>
+          <span>
+            <span className="block text-[14px] font-semibold">Long version</span>
+            <span className="block text-[12px] text-ink-3">More detail, as an article</span>
+          </span>
+          {arrow}
+        </Link>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px] font-medium">
+        <button type="button" onClick={onRestart} className="flex items-center gap-2 text-ink-2 transition hover:text-ink">
           <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden>
             <path d="M3 8a5 5 0 1 0 1.46-3.54M3 3v3h3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
@@ -660,12 +700,6 @@ function Close({
         <button type="button" onClick={onMethods} className="text-ink-2 underline decoration-ink/25 underline-offset-4 transition hover:text-ink hover:decoration-ink">
           Sources and methods
         </button>
-        <Link href={follow ? `/area/${follow}` : "/explore"} className="text-ink-2 underline decoration-ink/25 underline-offset-4 transition hover:text-ink hover:decoration-ink">
-          {follow ? "Your area report" : "Open the atlas"}
-        </Link>
-        <Link href="/story" className="text-ink-2 underline decoration-ink/25 underline-offset-4 transition hover:text-ink hover:decoration-ink">
-          Read the long version
-        </Link>
       </div>
     </div>
   )
