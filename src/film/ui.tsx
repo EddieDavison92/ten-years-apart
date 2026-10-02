@@ -89,6 +89,7 @@ export function PlaceSearch({
   compact,
   placeholder = "Follow a place",
   autoFocus,
+  block,
 }: {
   places: Place[]
   value: string | null
@@ -96,6 +97,8 @@ export function PlaceSearch({
   compact?: boolean
   placeholder?: string
   autoFocus?: boolean
+  /** Full width and solid, with suggestions opening upward; for the closing panel. */
+  block?: boolean
 }) {
   const [q, setQ] = useState("")
   const [open, setOpen] = useState(false)
@@ -144,7 +147,12 @@ export function PlaceSearch({
       <label htmlFor={id} className="sr-only">
         {placeholder}
       </label>
-      <div className="flex items-center gap-2 rounded-full border border-ink/10 bg-white/70 pl-3 pr-3 backdrop-blur transition focus-within:border-ink/30 focus-within:bg-white">
+      <div
+        className={cn(
+          "flex items-center gap-2 rounded-full border pr-3 transition",
+          block ? "border-transparent bg-white py-1 pl-4" : "border-ink/10 bg-white/70 pl-3 backdrop-blur focus-within:border-ink/30 focus-within:bg-white"
+        )}
+      >
         <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden>
           <circle cx="7" cy="7" r="4.75" fill="none" stroke="currentColor" strokeWidth="1.5" />
           <path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -178,14 +186,20 @@ export function PlaceSearch({
             } else return
             e.preventDefault()
           }}
-          className={cn("w-full bg-transparent py-1.5 text-ink outline-none placeholder:text-ink-3", compact ? "w-[8.5rem] text-[12.5px]" : "w-[10.5rem] text-[13px]")}
+          className={cn(
+            "w-full bg-transparent py-1.5 text-ink outline-none placeholder:text-ink-3",
+            block ? "text-[15px]" : compact ? "w-[8.5rem] text-[12.5px]" : "w-[10.5rem] text-[13px]"
+          )}
         />
       </div>
       {open && matches.length ? (
         <ul
           id={`${id}-list`}
           role="listbox"
-          className="absolute right-0 top-[calc(100%+6px)] z-50 w-64 overflow-hidden rounded-2xl border border-ink/10 bg-white py-1.5 shadow-[0_24px_48px_-24px_rgba(17,19,21,0.45)] [animation:film-menu_180ms_ease-out]"
+          className={cn(
+            "absolute z-50 overflow-hidden rounded-2xl border border-ink/10 bg-white py-1.5 shadow-[0_24px_48px_-24px_rgba(17,19,21,0.45)] [animation:film-menu_180ms_ease-out]",
+            block ? "inset-x-0 bottom-[calc(100%+6px)]" : "right-0 top-[calc(100%+6px)] w-64"
+          )}
         >
           {matches.map((p, i) => (
             <li key={p.code} id={`${id}-opt-${i}`} role="option" aria-selected={i === active}>

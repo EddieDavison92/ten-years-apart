@@ -651,7 +651,7 @@ function Close({
   onMethods: () => void
 }) {
   const name = follow ? places.find((p) => p.code === follow)?.name : null
-  const card = "group flex items-center justify-between gap-4 rounded-2xl border transition"
+  const card = "group flex items-center justify-between gap-4 rounded-2xl border border-ink/15 bg-white/60 px-4 py-3 text-ink transition hover:border-ink/40"
   const arrow = (
     <svg viewBox="0 0 16 16" className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5" aria-hidden>
       <path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -660,29 +660,38 @@ function Close({
   return (
     <div className="space-y-4">
       <p className="kicker">Keep exploring</p>
-      <div>
-        <PlaceSearch places={places} value={follow} onChange={onFollow} placeholder="Find your local authority" />
-        <p className="mt-2 text-[12.5px] text-ink-3">{follow ? "Marked in every scene if you watch again." : "Pick a place to follow it through every scene."}</p>
+      {/* The report is the main next step: search here, then open it. */}
+      <div className="rounded-2xl bg-ink p-5 text-paper">
+        <p className="text-[17px] font-semibold leading-snug">{name ? `${name}: the full report` : "See your area’s full report"}</p>
+        <p className="mt-1 text-[13px] leading-snug text-paper/70">
+          Life expectancy, healthy years, avoidable deaths and local circumstances, against England. Every UK local authority has one.
+        </p>
+        {follow ? (
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+            <Link href={`/area/${follow}`} className="group inline-flex items-center gap-2 rounded-full bg-paper py-2 pl-4 pr-3 text-[14px] font-semibold text-ink transition hover:bg-white">
+              Open {name}’s report
+              {arrow}
+            </Link>
+            <button type="button" onClick={() => onFollow(null)} className="text-[13px] text-paper/70 underline decoration-paper/30 underline-offset-4 transition hover:text-paper">
+              Choose another place
+            </button>
+          </div>
+        ) : (
+          <div className="mt-4">
+            <PlaceSearch places={places} value={null} onChange={onFollow} placeholder="Type your local authority" block />
+          </div>
+        )}
       </div>
-      <Link href={follow ? `/area/${follow}` : "/explore"} className={cn(card, "border-ink bg-ink px-5 py-4 text-paper hover:bg-[#23272b]")}>
-        <span>
-          <span className="block text-[16px] font-semibold">{name ? `${name}: full area report` : "Explore every area on the map"}</span>
-          <span className="mt-0.5 block text-[13px] text-paper/70">
-            {name ? "Life expectancy, healthy years and circumstances, against England" : "Any place, any period, any measure"}
-          </span>
-        </span>
-        {arrow}
-      </Link>
+      {follow ? <p className="text-[12.5px] text-ink-3">{name} is also marked in every scene if you watch again.</p> : null}
       <div className="grid grid-cols-2 gap-3">
-        {/* The primary card already opens the atlas when no place is followed. */}
-        <Link href={follow ? `/explore?area=${follow}` : "/evidence"} className={cn(card, "border-ink/15 bg-white/60 px-4 py-3 text-ink hover:border-ink/40")}>
+        <Link href={follow ? `/explore?area=${follow}` : "/explore"} className={card}>
           <span>
-            <span className="block text-[14px] font-semibold">{follow ? "The atlas" : "The evidence"}</span>
-            <span className="block text-[12px] text-ink-3">{follow ? "Maps and trends" : "What travels with it"}</span>
+            <span className="block text-[14px] font-semibold">The atlas</span>
+            <span className="block text-[12px] text-ink-3">Every area, mapped</span>
           </span>
           {arrow}
         </Link>
-        <Link href="/story" className={cn(card, "border-ink/15 bg-white/60 px-4 py-3 text-ink hover:border-ink/40")}>
+        <Link href="/story" className={card}>
           <span>
             <span className="block text-[14px] font-semibold">Long version</span>
             <span className="block text-[12px] text-ink-3">More detail, as an article</span>
